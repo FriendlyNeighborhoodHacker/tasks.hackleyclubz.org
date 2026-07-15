@@ -1,10 +1,10 @@
 # Reminders product specification
 
-## Mission
+## Mission.
 
 Make it easy to manage tasks within a group.
 
-## Core Design Philosophy
+## Core Design Philosophy.
 
 Users, Groups, Tasks.
 
