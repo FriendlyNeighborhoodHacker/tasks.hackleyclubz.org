@@ -6,20 +6,27 @@ require_once __DIR__ . '/../settings.php';
 require_once __DIR__ . '/UserContext.php';
 require_once __DIR__ . '/ActivityLog.php';
 require_once __DIR__ . '/TaskAccessTokens.php';
+require_once __DIR__ . '/EmailTemplates.php';
 
 /**
- * Daily reminder engine for tasks.
+ * Reminder + assignment email engine for tasks.
  *
  * Policy (see docs/email-notificaitons-spec.md, adapted from obligations to
  * group tasks):
- *  - One digest email per recipient per run, across all of their groups.
+ *  - Reminder emails use the group's customizable templates: one email per
+ *    recipient per group per run — the single-task template when exactly one
+ *    task triggered, the multi-task template otherwise. A task whose email
+ *    was hand-edited in the preview modal (custom_email_subject/body) is sent
+ *    as its own email using that saved content.
  *  - An email is TRIGGERED by: an overdue task (daily), a task due today, or a
  *    task_reminders row whose "due_date - days_in_advance" is today.
  *  - Recipients: the assignee (if they have an email); for unassigned tasks
  *    (or assignees without email), the group's owner and admins.
  *  - Deduplicated via notification_log, so re-running is safe (idempotent).
- *  - Every task line in the email links through a task access token so the
+ *  - Task names in the emails link through a task access token so the
  *    recipient can comment / mark complete without logging in.
+ *  - Assignment emails (sendAssignmentEmail) go out immediately when a task
+ *    is assigned, using the group's assignment template.
  *
  * Email is the only channel for now; the digest data structure returned by
  * collectRecipientDigests() is channel-agnostic so push/SMS can be added later.
@@ -60,9 +67,13 @@ class TaskNotificationManagement {
         }
 
         $st = self::pdo()->prepare(
-            'SELECT t.*, g.name AS group_name
+            'SELECT t.*, g.name AS group_name,
+                    cu.first_name AS creator_first_name, cu.last_name AS creator_last_name,
+                    ou.first_name AS owner_first_name, ou.last_name AS owner_last_name
              FROM tasks t
              JOIN task_groups g ON g.id = t.group_id
+             JOIN users ou ON ou.id = g.owner_user_id
+             LEFT JOIN users cu ON cu.id = t.created_by_user_id
              WHERE t.is_done = 0 AND t.due_date IS NOT NULL
              ORDER BY t.due_date, t.title'
         );
@@ -190,88 +201,235 @@ class TaskNotificationManagement {
                 continue;
             }
 
-            // Building the email issues the per-task access tokens, so only do
-            // it for real sends.
-            [$subject, $html] = self::buildDigestEmail($digest, $today);
+            // Building the emails issues the per-task access tokens, so only
+            // do it for real sends.
+            foreach (self::buildReminderEmails($digest) as $email) {
+                $ok = false;
+                $errorMessage = null;
+                try {
+                    $ok = (bool)$sendEmail((string)$user['email'], trim($user['first_name'] . ' ' . $user['last_name']), $email['subject'], $email['html']);
+                } catch (\Throwable $e) {
+                    $errorMessage = $e->getMessage();
+                }
 
-            $ok = false;
-            $errorMessage = null;
-            try {
-                $ok = (bool)$sendEmail((string)$user['email'], trim($user['first_name'] . ' ' . $user['last_name']), $subject, $html);
-            } catch (\Throwable $e) {
-                $errorMessage = $e->getMessage();
-            }
+                if ($ok) {
+                    $stats['emails_sent']++;
+                } else {
+                    $stats['emails_failed']++;
+                    $errorMessage = $errorMessage ?? 'send failed';
+                }
 
-            if ($ok) {
-                $stats['emails_sent']++;
-            } else {
-                $stats['emails_failed']++;
-                $errorMessage = $errorMessage ?? 'send failed';
-            }
-
-            // Record every trigger. Failed sends are recorded for the audit trail
-            // but do not block a retry (dedup only counts delivery_status='sent').
-            foreach ($digest['triggers'] as [$taskId, $groupId, $type, $daysInAdvance]) {
-                self::recordNotification($taskId, $groupId, (int)$rid, $type, $daysInAdvance, $today, (string)$user['email'], $ok, $errorMessage);
-                $stats['notifications_recorded']++;
+                // Record every trigger this email covered. Failed sends are
+                // recorded for the audit trail but do not block a retry (dedup
+                // only counts delivery_status='sent').
+                foreach ($email['triggers'] as [$taskId, $groupId, $type, $daysInAdvance]) {
+                    self::recordNotification($taskId, $groupId, (int)$rid, $type, $daysInAdvance, $today, (string)$user['email'], $ok, $errorMessage);
+                    $stats['notifications_recorded']++;
+                }
             }
         }
 
         return $stats;
     }
 
-    // Subject + HTML body for one recipient's digest. Every task line links
-    // through a fresh access token for this recipient.
-    public static function buildDigestEmail(array $digest, string $today): array {
-        $siteTitle = Settings::siteTitle();
+    /**
+     * The reminder emails for one recipient's digest, one per group (plus one
+     * per task whose email was hand-edited in the preview modal). Each entry:
+     * ['subject' =>, 'html' =>, 'triggers' => [the covered trigger rows]].
+     * Issues an access token per task, so only call this when really sending.
+     */
+    public static function buildReminderEmails(array $digest): array {
         $user = $digest['user'];
         $rid = (int)$user['id'];
 
-        $total = count($digest['overdue']) + count($digest['due_today']) + count($digest['upcoming']);
-        $subject = $siteTitle . ': ' . $total . ' reminder' . ($total === 1 ? '' : 's') . ' for today';
+        $tasksById = [];
+        foreach (['overdue', 'due_today', 'upcoming'] as $bucket) {
+            foreach ($digest[$bucket] as $t) {
+                $tasksById[(int)$t['id']] = $t;
+            }
+        }
 
+        // Bundle the triggered tasks by group, splitting out tasks with a
+        // saved custom email.
+        $byGroup = [];
+        foreach ($digest['triggers'] as $trigger) {
+            $t = $tasksById[(int)$trigger[0]] ?? null;
+            if (!$t) continue;
+            $gid = (int)$trigger[1];
+            $slot = self::hasCustomEmail($t) ? 'custom' : 'templated';
+            $byGroup[$gid][$slot][] = ['task' => $t, 'trigger' => $trigger];
+        }
+
+        $emails = [];
+        foreach ($byGroup as $gid => $bundle) {
+            foreach ($bundle['custom'] ?? [] as $entry) {
+                $emails[] = self::buildCustomTaskEmail($entry['task'], $user) + ['triggers' => [$entry['trigger']]];
+            }
+            if (!empty($bundle['templated'])) {
+                $tasks = array_column($bundle['templated'], 'task');
+                $triggers = array_column($bundle['templated'], 'trigger');
+                $email = count($tasks) === 1
+                    ? self::buildSingleTaskEmail($gid, $tasks[0], $user)
+                    : self::buildMultiTaskEmail($gid, $tasks, $user);
+                $emails[] = $email + ['triggers' => $triggers];
+            }
+        }
+        return $emails;
+    }
+
+    public static function hasCustomEmail(array $task): bool {
+        return trim((string)($task['custom_email_subject'] ?? '')) !== ''
+            && trim((string)($task['custom_email_body'] ?? '')) !== '';
+    }
+
+    // "[task_assigner]": the task's creator, falling back to the group owner.
+    public static function assignerName(array $task): string {
+        $creator = trim(($task['creator_first_name'] ?? '') . ' ' . ($task['creator_last_name'] ?? ''));
+        if ($creator !== '') return $creator;
+        $owner = trim(($task['owner_first_name'] ?? '') . ' ' . ($task['owner_last_name'] ?? ''));
+        return $owner !== '' ? $owner : (string)($task['group_name'] ?? '');
+    }
+
+    // Plain-text token values for one task's email to one recipient.
+    public static function taskTokens(array $task, array $recipientUser): array {
+        return [
+            'first_name' => (string)$recipientUser['first_name'],
+            'task_assigner' => self::assignerName($task),
+            'task_name' => (string)$task['title'],
+            'task_due_date' => EmailTemplates::dueDateLabel($task['due_date'] ?? null),
+            'task_description' => trim((string)($task['description'] ?? '')),
+            'group_name' => (string)($task['group_name'] ?? ''),
+        ];
+    }
+
+    private static function taskLinkHtml(array $task, int $recipientUserId): string {
         $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+        $token = TaskAccessTokens::issueForTaskRecipient((int)$task['id'], $recipientUserId);
+        return '<a href="' . $e(TaskAccessTokens::taskActionUrl($token)) . '">' . $e($task['title']) . '</a>';
+    }
 
-        $item = function (array $t, string $suffix) use ($rid, $e): string {
-            $token = TaskAccessTokens::issueForTaskRecipient((int)$t['id'], $rid);
-            $url = TaskAccessTokens::taskActionUrl($token);
-            $group = !empty($t['group_name']) ? ' (' . $e($t['group_name']) . ')' : '';
-            return '<li><a href="' . $e($url) . '">' . $e($t['title']) . '</a>' . $group . ' — ' . $e($suffix) . '</li>';
-        };
+    // One task, group template: [task_name] renders as an access-token link.
+    private static function buildSingleTaskEmail(int $groupId, array $task, array $user): array {
+        $tpl = EmailTemplates::getTemplate($groupId, EmailTemplates::TYPE_REMINDER_SINGLE);
+        $tokens = self::taskTokens($task, $user);
+        return [
+            'subject' => EmailTemplates::renderText($tpl['subject'], $tokens),
+            'html' => EmailTemplates::renderHtml($tpl['body'], $tokens, [
+                'task_name' => self::taskLinkHtml($task, (int)$user['id']),
+            ]),
+        ];
+    }
 
-        $html = '<p>Hello ' . $e($user['first_name']) . ',</p>'
-              . '<p>You have ' . $total . ' ' . $e($siteTitle) . ' reminder' . ($total === 1 ? '' : 's') . '.</p>';
+    // Several tasks, group template: [task_list] expands to the numbered tasks.
+    private static function buildMultiTaskEmail(int $groupId, array $tasks, array $user): array {
+        $tpl = EmailTemplates::getTemplate($groupId, EmailTemplates::TYPE_REMINDER_MULTI);
 
-        if (!empty($digest['due_today'])) {
-            $html .= '<h3 style="color:#b45309;">Due Today</h3><ul>';
-            foreach ($digest['due_today'] as $t) {
-                $html .= $item($t, 'due today');
-            }
-            $html .= '</ul>';
+        // A single sender reads best: the shared creator if there is one,
+        // otherwise the group owner.
+        $assigners = array_unique(array_map([self::class, 'assignerName'], $tasks));
+        $assigner = count($assigners) === 1
+            ? $assigners[0]
+            : trim(($tasks[0]['owner_first_name'] ?? '') . ' ' . ($tasks[0]['owner_last_name'] ?? ''));
+
+        $items = [];
+        foreach ($tasks as $t) {
+            $items[] = [
+                'title' => (string)$t['title'],
+                'title_html' => self::taskLinkHtml($t, (int)$user['id']),
+                'due_label' => EmailTemplates::dueDateLabel($t['due_date'] ?? null),
+                'description' => (string)($t['description'] ?? ''),
+            ];
         }
 
-        if (!empty($digest['upcoming'])) {
-            $html .= '<h3>Upcoming</h3><ul>';
-            foreach ($digest['upcoming'] as $t) {
-                $n = (int)$t['days_until'];
-                $html .= $item($t, 'due in ' . $n . ' day' . ($n === 1 ? '' : 's') . ' (' . date('M j', strtotime($t['due_date'])) . ')');
+        $tokens = [
+            'first_name' => (string)$user['first_name'],
+            'task_assigner' => $assigner,
+            'group_name' => (string)($tasks[0]['group_name'] ?? ''),
+            'task_count' => count($tasks),
+            'task_list' => EmailTemplates::taskListText($items),
+        ];
+        return [
+            'subject' => EmailTemplates::renderText($tpl['subject'], $tokens),
+            'html' => EmailTemplates::renderHtml($tpl['body'], $tokens, [
+                'task_list' => EmailTemplates::taskListHtml($items),
+            ]),
+        ];
+    }
+
+    // A task whose email was hand-edited in the preview modal. Any tokens the
+    // editor kept still render, and a view/complete link is appended since the
+    // edited text may not contain one.
+    private static function buildCustomTaskEmail(array $task, array $user): array {
+        $tokens = self::taskTokens($task, $user);
+        $link = self::taskLinkHtml($task, (int)$user['id']);
+        $html = EmailTemplates::renderHtml((string)$task['custom_email_body'], $tokens, ['task_name' => $link])
+              . '<p>View or complete this task: ' . $link . '</p>';
+        return [
+            'subject' => EmailTemplates::renderText((string)$task['custom_email_subject'], $tokens),
+            'html' => $html,
+        ];
+    }
+
+    // ===== Assignment emails =====
+
+    /**
+     * Send the group's assignment-template email to a task's assignee. Called
+     * right after a task is created with an assignee or reassigned. Best-effort:
+     * returns false (never throws) when there is nothing to send — no assignee,
+     * no assignee email, or self-assignment.
+     */
+    public static function sendAssignmentEmail(int $taskId, ?UserContext $assignerCtx = null, ?callable $sendEmail = null): bool {
+        require_once __DIR__ . '/TaskManagement.php';
+
+        $task = TaskManagement::getTask($taskId);
+        if (!$task || empty($task['assigned_to_user_id']) || empty($task['assignee_email'])) return false;
+        $assigneeId = (int)$task['assigned_to_user_id'];
+        if ($assignerCtx && $assignerCtx->id === $assigneeId) return false;
+
+        // The assigner is whoever performed the action, not the task creator.
+        $assignerName = null;
+        if ($assignerCtx) {
+            $st = self::pdo()->prepare('SELECT first_name, last_name FROM users WHERE id=?');
+            $st->execute([$assignerCtx->id]);
+            if ($u = $st->fetch()) {
+                $assignerName = trim($u['first_name'] . ' ' . $u['last_name']);
             }
-            $html .= '</ul>';
         }
 
-        if (!empty($digest['overdue'])) {
-            $html .= '<h3 style="color:#b91c1c;">Overdue</h3><ul>';
-            foreach ($digest['overdue'] as $t) {
-                $n = -(int)$t['days_until'];
-                $html .= $item($t, $n . ' day' . ($n === 1 ? '' : 's') . ' overdue');
-            }
-            $html .= '</ul>';
+        $recipient = ['id' => $assigneeId, 'first_name' => (string)($task['assignee_first_name'] ?? '')];
+        $tokens = self::taskTokens($task, $recipient);
+        if ($assignerName) {
+            $tokens['task_assigner'] = $assignerName;
         }
 
-        $baseUrl = rtrim(Settings::get('site_base_url', ''), '/');
-        $html .= '<p><a href="' . $e($baseUrl) . '/">View all tasks</a></p>';
+        $tpl = EmailTemplates::getTemplate((int)$task['group_id'], EmailTemplates::TYPE_ASSIGNMENT);
+        $subject = EmailTemplates::renderText($tpl['subject'], $tokens);
+        $html = EmailTemplates::renderHtml($tpl['body'], $tokens, [
+            'task_name' => self::taskLinkHtml($task, $assigneeId),
+        ]);
 
-        return [$subject, $html];
+        if ($sendEmail === null) {
+            require_once __DIR__ . '/../mailer.php';
+            $sendEmail = function (string $to, string $toName, string $subject, string $html): bool {
+                return send_email($to, $subject, $html, $toName);
+            };
+        }
+
+        $ok = false;
+        $errorMessage = null;
+        try {
+            $toName = trim(($task['assignee_first_name'] ?? '') . ' ' . ($task['assignee_last_name'] ?? ''));
+            $ok = (bool)$sendEmail((string)$task['assignee_email'], $toName, $subject, $html);
+        } catch (\Throwable $e) {
+            $errorMessage = $e->getMessage();
+        }
+
+        try {
+            self::recordNotification($taskId, (int)$task['group_id'], $assigneeId, 'assignment', null, date('Y-m-d'), (string)$task['assignee_email'], $ok, $ok ? null : ($errorMessage ?? 'send failed'));
+        } catch (\Throwable $e) {
+            // Logging must never break the task save.
+        }
+        return $ok;
     }
 
     // ===== Notification log =====

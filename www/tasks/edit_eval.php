@@ -4,6 +4,7 @@ require_once __DIR__ . '/../partials.php';
 require_once __DIR__ . '/../lib/GroupManagement.php';
 require_once __DIR__ . '/../lib/TaskManagement.php';
 require_once __DIR__ . '/../lib/UserManagement.php';
+require_once __DIR__ . '/../lib/TaskNotificationManagement.php';
 require_once __DIR__ . '/form_fields.php';
 Application::init();
 require_login();
@@ -41,6 +42,18 @@ try {
     }
 
     TaskManagement::updateTask($ctx, $taskId, $data);
+
+    // Reassigned to someone new? Notify them with the group's assignment
+    // email template. Best-effort: a mail problem must not block the save.
+    $newAssigneeId = (int)($data['assigned_to_user_id'] ?? 0);
+    if ($newAssigneeId && $newAssigneeId !== (int)($task['assigned_to_user_id'] ?? 0)) {
+        try {
+            TaskNotificationManagement::sendAssignmentEmail($taskId, $ctx);
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+
     $_SESSION['success'] = 'Task saved.';
     header('Location: /tasks/view.php?id=' . $taskId);
     exit;

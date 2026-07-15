@@ -69,12 +69,13 @@ final class TaskNotificationManagementTest extends TestCase
         $stats = TaskNotificationManagement::runDailyNotifications('2026-07-14', $this->fakeSender());
         $this->assertSame(0, $stats['emails_sent']);
 
-        // exactly 7 days out: reminder
+        // exactly 7 days out: reminder (single-task template)
         $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
         $this->assertSame(1, $stats['emails_sent']);
         $this->assertSame('assignee@example.com', $this->sentEmails[0]['to']);
         $this->assertStringContainsString('Prepare agenda', $this->sentEmails[0]['html']);
-        $this->assertStringContainsString('due in 7 days', $this->sentEmails[0]['html']);
+        $this->assertStringContainsString('due on July 22, 2026', $this->sentEmails[0]['html']);
+        $this->assertSame('Reminder: Prepare agenda is due on July 22, 2026', $this->sentEmails[0]['subject']);
 
         // 6 days out: quiet again
         $stats = TaskNotificationManagement::runDailyNotifications('2026-07-16', $this->fakeSender());
@@ -88,12 +89,14 @@ final class TaskNotificationManagementTest extends TestCase
 
         $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
 
-        // One digest to the assignee containing both
+        // One multi-task email to the assignee containing both, numbered
         $this->assertSame(1, $stats['emails_sent']);
         $html = $this->sentEmails[0]['html'];
+        $this->assertStringContainsString('to complete these tasks', $html);
         $this->assertStringContainsString('Due today task', $html);
         $this->assertStringContainsString('Overdue task', $html);
-        $this->assertStringContainsString('5 days overdue', $html);
+        $this->assertStringContainsString('1. ', strip_tags($html));
+        $this->assertStringContainsString('2. ', strip_tags($html));
     }
 
     public function testOverdueRetriggersDaily(): void
@@ -142,7 +145,7 @@ final class TaskNotificationManagementTest extends TestCase
         $this->assertSame('owner@example.com', $this->sentEmails[0]['to']);
     }
 
-    public function testOneDigestPerRecipientAcrossGroups(): void
+    public function testOneEmailPerGroupPerRecipient(): void
     {
         $otherGroup = GroupManagement::createGroup($this->ownerCtx, ['name' => 'Second Group']);
         GroupManagement::addMember($this->ownerCtx, $otherGroup, $this->assigneeId, 'member');
@@ -154,14 +157,24 @@ final class TaskNotificationManagementTest extends TestCase
             'assigned_to_user_id' => $this->assigneeId,
         ]);
 
+        // Templates are per group, so each group sends its own email.
         $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
-        $this->assertSame(1, $stats['emails_sent']);
+        $this->assertSame(2, $stats['emails_sent']);
 
-        $html = $this->sentEmails[0]['html'];
-        $this->assertStringContainsString('Group one task', $html);
-        $this->assertStringContainsString('Group two task', $html);
-        $this->assertStringContainsString('Club Board', $html);
-        $this->assertStringContainsString('Second Group', $html);
+        $bodies = array_column($this->sentEmails, 'html');
+        sort($bodies);
+        $combined = implode("\n---\n", $bodies);
+        $this->assertStringContainsString('Group one task', $combined);
+        $this->assertStringContainsString('Club Board Team', $combined);
+        $this->assertStringContainsString('Group two task', $combined);
+        $this->assertStringContainsString('Second Group Team', $combined);
+        foreach ($bodies as $html) {
+            // Each email covers exactly one group's task
+            $this->assertNotSame(
+                str_contains($html, 'Group one task'),
+                str_contains($html, 'Group two task')
+            );
+        }
     }
 
     // --- idempotency & failure handling ---
@@ -228,12 +241,95 @@ final class TaskNotificationManagementTest extends TestCase
         $this->assertSame($this->assigneeId, $auth['user_id']);
     }
 
-    public function testSubjectCountsReminders(): void
+    public function testMultiTaskSubjectCountsTasks(): void
     {
         $this->createTask('One', '2026-07-15', $this->assigneeId);
         $this->createTask('Two', '2026-07-10', $this->assigneeId);
 
         TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
-        $this->assertStringContainsString('2 reminders for today', $this->sentEmails[0]['subject']);
+        $this->assertSame('Reminder: you have 2 tasks in Club Board', $this->sentEmails[0]['subject']);
+    }
+
+    // --- customizable templates ---
+
+    public function testCustomizedGroupTemplateIsUsed(): void
+    {
+        EmailTemplates::saveTemplate($this->ownerCtx, $this->groupId, EmailTemplates::TYPE_REMINDER_SINGLE,
+            'Nudge about [task_name]',
+            "Dear [first_name], please finish [task_name] by [task_due_date]. - the Casa Team!");
+
+        $this->createTask('Water the plants', '2026-07-15', $this->assigneeId);
+        TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+
+        $this->assertSame('Nudge about Water the plants', $this->sentEmails[0]['subject']);
+        $this->assertStringContainsString('Dear Assignee, please finish', $this->sentEmails[0]['html']);
+        $this->assertStringContainsString('July 15, 2026', $this->sentEmails[0]['html']);
+        $this->assertStringContainsString('the Casa Team!', $this->sentEmails[0]['html']);
+    }
+
+    public function testPerTaskCustomEmailIsSentSeparately(): void
+    {
+        $customId = $this->createTask('Custom-email task', '2026-07-15', $this->assigneeId);
+        $this->createTask('Plain task', '2026-07-15', $this->assigneeId);
+
+        pdo()->prepare('UPDATE tasks SET custom_email_subject=?, custom_email_body=? WHERE id=?')
+            ->execute(['A personal note about [task_name]', "Hi [first_name] — special instructions here.", $customId]);
+
+        $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+
+        // The customized task gets its own email; the other uses the single template.
+        $this->assertSame(2, $stats['emails_sent']);
+        $subjects = array_column($this->sentEmails, 'subject');
+        sort($subjects);
+        $this->assertSame('A personal note about Custom-email task', $subjects[0]);
+        $this->assertSame('Reminder: Plain task is due on July 15, 2026', $subjects[1]);
+
+        $custom = null;
+        foreach ($this->sentEmails as $email) {
+            if (str_starts_with($email['subject'], 'A personal note')) $custom = $email;
+        }
+        $this->assertStringContainsString('Hi Assignee — special instructions here.', $custom['html']);
+        // The edited text may lack a link, so one is appended.
+        $this->assertStringContainsString('View or complete this task', $custom['html']);
+
+        // Both are recorded and neither re-sends.
+        $second = TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+        $this->assertSame(0, $second['emails_sent']);
+    }
+
+    // --- assignment emails ---
+
+    public function testAssignmentEmailUsesTemplateAndLogs(): void
+    {
+        $taskId = $this->createTask('Bake cookies', '2026-07-22', $this->assigneeId);
+
+        $ok = TaskNotificationManagement::sendAssignmentEmail($taskId, $this->ownerCtx, $this->fakeSender());
+        $this->assertTrue($ok);
+
+        $this->assertCount(1, $this->sentEmails);
+        $email = $this->sentEmails[0];
+        $this->assertSame('assignee@example.com', $email['to']);
+        $this->assertSame('New task for you: Bake cookies', $email['subject']);
+        $this->assertStringContainsString('Owner Test has assigned you to', $email['html']);
+        $this->assertStringContainsString('due on July 22, 2026', $email['html']);
+        $this->assertStringContainsString('email reminders as the due date gets closer', $email['html']);
+        $this->assertStringContainsString('the Club Board Team!', $email['html']);
+
+        $row = pdo()->query("SELECT notification_type, recipient_user_id FROM notification_log")->fetch();
+        $this->assertSame('assignment', $row['notification_type']);
+        $this->assertSame($this->assigneeId, (int)$row['recipient_user_id']);
+    }
+
+    public function testAssignmentEmailSkipsSelfAssignmentAndMissingEmail(): void
+    {
+        $selfTask = $this->createTask('Self-assigned', '2026-07-22', $this->ownerId);
+        $this->assertFalse(TaskNotificationManagement::sendAssignmentEmail($selfTask, $this->ownerCtx, $this->fakeSender()));
+
+        $noEmailId = $this->insertUser('NoEmail', null);
+        GroupManagement::addMember($this->ownerCtx, $this->groupId, $noEmailId, 'member');
+        $noEmailTask = $this->createTask('No-email assignee', '2026-07-22', $noEmailId);
+        $this->assertFalse(TaskNotificationManagement::sendAssignmentEmail($noEmailTask, $this->ownerCtx, $this->fakeSender()));
+
+        $this->assertCount(0, $this->sentEmails);
     }
 }

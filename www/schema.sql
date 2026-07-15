@@ -173,6 +173,8 @@ CREATE TABLE tasks (
   completed_by_user_id INT DEFAULT NULL,
   assigned_to_user_id INT DEFAULT NULL COMMENT 'NULL = unassigned (notifications fall back to group owner/admins)',
   created_by_user_id INT DEFAULT NULL,
+  custom_email_subject VARCHAR(255) DEFAULT NULL COMMENT 'Owner-edited scheduled reminder email; NULL = use group template',
+  custom_email_body TEXT DEFAULT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_tasks_group FOREIGN KEY (group_id) REFERENCES task_groups(id) ON DELETE CASCADE,
@@ -185,6 +187,26 @@ CREATE INDEX idx_tasks_group_due ON tasks(group_id, due_date);
 CREATE INDEX idx_tasks_assignee ON tasks(assigned_to_user_id);
 CREATE INDEX idx_tasks_category ON tasks(group_id, category);
 CREATE INDEX idx_tasks_done ON tasks(is_done);
+
+-- Per-group customized email templates. Rows exist only for templates the
+-- group has customized; defaults live in code (lib/EmailTemplates.php).
+-- template_type:
+--   assignment      — sent when a task is assigned to someone
+--   reminder_single — scheduled reminder covering exactly one task
+--   reminder_multi  — scheduled reminder covering several tasks at once
+CREATE TABLE group_email_templates (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  group_id INT NOT NULL,
+  template_type ENUM('assignment','reminder_single','reminder_multi') NOT NULL,
+  subject VARCHAR(255) NOT NULL,
+  body TEXT NOT NULL,
+  updated_by_user_id INT DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_group_template (group_id, template_type),
+  CONSTRAINT fk_get_group FOREIGN KEY (group_id) REFERENCES task_groups(id) ON DELETE CASCADE,
+  CONSTRAINT fk_get_user FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
 
 -- Email reminders: one row per "N days before the due date". A task may have
 -- several. The daily notification runner also always covers due-today and
@@ -239,15 +261,16 @@ CREATE INDEX idx_tat_task_user ON task_access_tokens(task_id, user_id);
 -- Every emailed reminder is recorded here; the daily runner checks it before
 -- sending so it is safe to run multiple times per day (idempotent).
 -- notification_type:
---   overdue   — re-sent daily while overdue
---   due_today — sent on the due date
---   reminder  — sent when due_date - days_in_advance == today (per task_reminders row)
+--   overdue    — re-sent daily while overdue
+--   due_today  — sent on the due date
+--   reminder   — sent when due_date - days_in_advance == today (per task_reminders row)
+--   assignment — sent when a task is assigned to someone
 CREATE TABLE notification_log (
   id INT AUTO_INCREMENT PRIMARY KEY,
   group_id INT DEFAULT NULL,
   task_id INT DEFAULT NULL,
   recipient_user_id INT NOT NULL,
-  notification_type ENUM('overdue','due_today','reminder') NOT NULL,
+  notification_type ENUM('overdue','due_today','reminder','assignment') NOT NULL,
   days_in_advance INT DEFAULT NULL COMMENT 'Set for notification_type=reminder',
   notification_date DATE NOT NULL,
   sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

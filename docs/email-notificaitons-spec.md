@@ -95,6 +95,45 @@ If an obligation applies to a child, notifications should still be sent to the r
 
 ---
 
+# Email Templates (added 2026-07-15)
+
+Reminder and assignment emails are built from three per-group templates,
+customizable on the group settings page (group owner / group admins). Defaults
+live in code (`lib/EmailTemplates.php`); a `group_email_templates` row exists
+only once a group customizes a template, and deleting it restores the default.
+
+Template types:
+
+1. **assignment** — sent immediately when a task is created with an assignee or
+   reassigned (never for self-assignment).
+2. **reminder_single** — the scheduled reminder when a recipient has exactly one
+   triggered task in a group.
+3. **reminder_multi** — the scheduled reminder when a recipient has several
+   triggered tasks in a group; `[task_list]` expands to the numbered tasks.
+
+Templates are plain text with `[token]` placeholders: `[first_name]`,
+`[task_assigner]` (task creator, falling back to the group owner),
+`[task_name]` (rendered as an access-token link in the sent email),
+`[task_due_date]`, `[task_description]`, `[group_name]`, and for the multi
+template `[task_list]` and `[task_count]`.
+
+Reminder emails are therefore sent **per recipient per group** (no longer one
+cross-group digest). Trigger rules, recipient rules, and notification_log
+dedup are unchanged; `assignment` is a new notification_type logged without
+dedup (each reassignment notifies).
+
+## Per-task email override
+
+On the group task list, the group owner/admins have an "Email preview" button
+per task that opens a Gmail-style modal showing the task's scheduled reminder
+email as it would be sent. "Save for scheduled send" stores the edited subject
+and body on the task (`tasks.custom_email_subject/custom_email_body`). A task
+with a saved custom email is sent as its own email (any `[token]`s kept in the
+edited text still render, and a view/complete link is appended); the group's
+single/multi templates then apply only to the remaining tasks.
+
+---
+
 # Email Format
 
 Each recipient should receive a single daily digest email rather than one email per obligation.

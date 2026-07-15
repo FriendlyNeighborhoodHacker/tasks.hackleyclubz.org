@@ -105,7 +105,7 @@ function board_status_html(array $t, string $today): string {
     return '<span class="pill pill-later">Due ' . h($dateLabel) . '</span>';
 }
 
-function tasks_table(array $rows, string $today, bool $showCategory): void {
+function tasks_table(array $rows, string $today, bool $showCategory, bool $showEmailCol): void {
     ?>
     <table class="board-table">
       <thead><tr>
@@ -113,6 +113,7 @@ function tasks_table(array $rows, string $today, bool $showCategory): void {
         <th class="col-assignee">Owner</th>
         <?php if ($showCategory): ?><th class="col-category">Category</th><?php endif; ?>
         <th class="col-due">Status</th>
+        <?php if ($showEmailCol): ?><th class="col-email">Email</th><?php endif; ?>
         <th class="col-actions"></th>
       </tr></thead>
       <tbody>
@@ -122,6 +123,13 @@ function tasks_table(array $rows, string $today, bool $showCategory): void {
           <td><?=board_assignee_html($t)?></td>
           <?php if ($showCategory): ?><td class="small"><?=h($t['category'] ?? '')?></td><?php endif; ?>
           <td><?=board_status_html($t, $today)?></td>
+          <?php if ($showEmailCol): ?>
+          <td>
+            <?php if (empty($t['is_done'])): ?>
+            <button type="button" class="email-preview-btn" data-task-id="<?=(int)$t['id']?>">✉ Email preview</button>
+            <?php endif; ?>
+          </td>
+          <?php endif; ?>
           <td>
             <?php if (empty($t['is_done'])): ?>
             <form method="post" action="/tasks/complete_eval.php" style="display:inline">
@@ -181,10 +189,110 @@ header_html($group['name']);
     <div class="board-group" style="--group-color: <?=h($color)?>">
       <h3 class="board-group-title"><?=h($section['label'])?> <span class="count"><?=count($section['tasks'])?> task<?=count($section['tasks'])===1?'':'s'?></span></h3>
       <div class="board-card">
-        <?php tasks_table($section['tasks'], $today, $view !== 'category'); ?>
+        <?php tasks_table($section['tasks'], $today, $view !== 'category', $isGroupAdmin); ?>
       </div>
     </div>
   <?php endforeach; ?>
+<?php endif; ?>
+
+<?php if ($isGroupAdmin): ?>
+<!-- Gmail-style preview of a task's scheduled reminder email. The owner can
+     edit it; "Save for scheduled send" stores it as the task's custom email. -->
+<div class="modal hidden" id="email-modal" data-csrf="<?=h(csrf_token())?>">
+  <div class="email-compose">
+    <div class="email-compose-titlebar">
+      <span id="em-title">Scheduled reminder</span>
+      <button type="button" class="email-compose-close" id="em-close" aria-label="Close">×</button>
+    </div>
+    <div class="email-compose-field"><span class="email-compose-label">To</span><span id="em-to"></span></div>
+    <div class="email-compose-field"><span class="email-compose-label">From</span><span id="em-from"></span></div>
+    <div class="email-compose-field"><input type="text" id="em-subject" placeholder="Subject"></div>
+    <textarea id="em-body" rows="14"></textarea>
+    <div class="email-compose-footer">
+      <button type="button" class="email-send-btn" id="em-save">Save for scheduled send</button>
+      <button type="button" class="button email-reset-btn hidden" id="em-reset">Reset to template</button>
+      <span class="small" id="em-status"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modal = document.getElementById('email-modal');
+  var csrf = modal.getAttribute('data-csrf');
+  var taskId = null;
+  var el = function (id) { return document.getElementById(id); };
+
+  function setStatus(text, isError) {
+    el('em-status').textContent = text;
+    el('em-status').style.color = isError ? '#b91c1c' : '#0f5d2f';
+  }
+
+  function fill(data) {
+    taskId = data.task_id;
+    el('em-title').textContent = 'Scheduled reminder — ' + data.task_title;
+    el('em-to').textContent = data.to;
+    el('em-from').textContent = data.from;
+    el('em-subject').value = data.subject;
+    el('em-body').value = data.body;
+    el('em-reset').classList.toggle('hidden', !data.is_custom);
+    setStatus(data.is_custom ? 'Customized email — the template no longer applies to this task.' : '');
+  }
+
+  function openPreview(id) {
+    fetch('/tasks/email_preview.php?task_id=' + id)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) { alert(data.error); return; }
+        fill(data);
+        modal.classList.remove('hidden');
+        el('em-subject').focus();
+      })
+      .catch(function () { alert('Could not load the email preview.'); });
+  }
+
+  function post(params) {
+    params.set('csrf', csrf);
+    params.set('task_id', taskId);
+    return fetch('/tasks/email_save_eval.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    }).then(function (r) { return r.json(); });
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.email-preview-btn');
+    if (btn) openPreview(btn.getAttribute('data-task-id'));
+  });
+
+  el('em-save').addEventListener('click', function () {
+    var params = new URLSearchParams();
+    params.set('subject', el('em-subject').value);
+    params.set('body', el('em-body').value);
+    post(params).then(function (data) {
+      if (data.error) { setStatus(data.error, true); return; }
+      el('em-reset').classList.remove('hidden');
+      setStatus('Saved — this email will be used for this task’s scheduled reminders.');
+    }).catch(function () { setStatus('Save failed.', true); });
+  });
+
+  el('em-reset').addEventListener('click', function () {
+    var params = new URLSearchParams();
+    params.set('action', 'reset');
+    post(params).then(function (data) {
+      if (data.error) { setStatus(data.error, true); return; }
+      openPreview(taskId);
+    }).catch(function () { setStatus('Reset failed.', true); });
+  });
+
+  el('em-close').addEventListener('click', function () { modal.classList.add('hidden'); });
+  modal.addEventListener('click', function (e) { if (e.target === modal) modal.classList.add('hidden'); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') modal.classList.add('hidden');
+  });
+})();
+</script>
 <?php endif; ?>
 
 <?php footer_html(); ?>

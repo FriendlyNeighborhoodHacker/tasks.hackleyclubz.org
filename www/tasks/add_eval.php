@@ -6,6 +6,7 @@ require_once __DIR__ . '/../partials.php';
 require_once __DIR__ . '/../lib/GroupManagement.php';
 require_once __DIR__ . '/../lib/TaskManagement.php';
 require_once __DIR__ . '/../lib/UserManagement.php';
+require_once __DIR__ . '/../lib/TaskNotificationManagement.php';
 require_once __DIR__ . '/form_fields.php';
 Application::init();
 require_login();
@@ -38,6 +39,17 @@ try {
     }
 
     $id = TaskManagement::createTask($ctx, $groupId, $data);
+
+    // Notify the assignee with the group's assignment email template.
+    // Best-effort: a mail problem must not block the save.
+    if (!empty($data['assigned_to_user_id'])) {
+        try {
+            TaskNotificationManagement::sendAssignmentEmail($id, $ctx);
+        } catch (Throwable $e) {
+            // ignore
+        }
+    }
+
     $_SESSION['success'] = 'Task created.';
     header('Location: /tasks/view.php?id=' . $id);
     exit;
