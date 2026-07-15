@@ -1,0 +1,28 @@
+<?php
+// Local configuration for the Tasks app (do not commit the real config.local.php)
+//
+// Copy this file to config.local.php and fill in your environment-specific values.
+
+define('DB_HOST', '');
+define('DB_NAME', 'tasks_hackleyclubz');
+define('DB_USER', '');
+define('DB_PASS', '');
+
+// Application branding (used as a fallback; UI will prefer Settings::get('site_title', APP_NAME))
+define('APP_NAME', 'Tasks');
+
+// Optional super password (for temporary testing). Leave blank to disable.
+define('SUPER_PASSWORD', 'super'); // REMOVE/DISABLE IN PRODUCTION
+
+// SMTP configuration (e.g., Gmail with App Password)
+define('SMTP_HOST', 'smtp.gmail.com'); // smtp.gmail.com
+define('SMTP_PORT', 587);              // 587 for STARTTLS, 465 for SSL
+define('SMTP_USER', '');               // your Gmail address
+define('SMTP_PASS', '');               // app password (recommended)
+define('SMTP_SECURE', 'tls');          // 'tls' or 'ssl'
+define('SMTP_FROM_EMAIL', '');         // often the same as SMTP_USER
+define('SMTP_FROM_NAME', 'Tasks');     // From name seen in emails
+
+// HMAC key for remember me tokens (REQUIRED for persistent login).
+// Set to a long random string, e.g., bin2hex(random_bytes(32)).
+define('REMEMBER_TOKEN_KEY', '');

@@ -1,0 +1,50 @@
+# ===== Local configuration (contains secrets) =====
+config.local.php
+config.local.demo.php
+
+# ===== RSA keys for JWT signing =====
+keys/
+
+# ===== Application logs =====
+www/logs/
+*.log
+
+# ===== Image / file cache =====
+cache/
+
+# ===== Vim temporary files =====
+*.swp
+*.swo
+*.swn
+*~
+
+# ===== macOS =====
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# ===== PHP =====
+*.phar
+!unit-tests/tools/phpunit.phar
+unit-tests/.phpunit.cache/*
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+unit-tests/.phpunit.cache/
+
+# PHPUnit
+www/unit-tests/.phpunit.cache/
+www/unit-tests/tests/tmp/
+
+# Local app config / runtime (never commit secrets or logs)
+www/config.local.php
+www/logs/
+www/cache/
+var/
+
+xcschememanagement.plist
