@@ -1,8 +1,10 @@
 <?php
-// JSON: the scheduled reminder email for one task, as it would be sent today —
-// the task's saved custom email if there is one, otherwise the group's
-// single-task reminder template. Feeds the "Email preview" modal on
-// tasks/index.php (group owner / group admins only).
+// JSON: the scheduled reminder email for one task — the task's saved custom
+// email if there is one, otherwise the group's single-task reminder template.
+// Subject and body keep their [token] placeholders (rendered as pink tags in
+// the modal; substituted with the task's CURRENT details only at send time);
+// token_values carries today's values for the tags' tooltips. Feeds the
+// "Email preview" modal on tasks/index.php (group owner / group admins only).
 require_once __DIR__ . '/../partials.php';
 require_once __DIR__ . '/../lib/GroupManagement.php';
 require_once __DIR__ . '/../lib/TaskManagement.php';
@@ -52,12 +54,18 @@ $to = $hasAssignee
     ? $assigneeName . (!empty($task['assignee_email']) ? ' <' . $task['assignee_email'] . '>' : ' (no email — will go to the group owner & admins)')
     : 'Group owner & admins (task is unassigned)';
 
+// Emails go out from the configured SMTP sender, not the task creator.
+$fromEmail = (defined('SMTP_FROM_EMAIL') && SMTP_FROM_EMAIL) ? SMTP_FROM_EMAIL
+    : ((defined('SMTP_USER') && SMTP_USER) ? SMTP_USER : '');
+$fromName = (defined('SMTP_FROM_NAME') && SMTP_FROM_NAME) ? SMTP_FROM_NAME : 'Tasks';
+
 echo json_encode([
     'task_id' => (int)$task['id'],
     'task_title' => (string)$task['title'],
     'is_custom' => $isCustom,
-    'subject' => EmailTemplates::renderText($subject, $tokens),
-    'body' => EmailTemplates::renderText($body, $tokens),
+    'subject' => $subject,
+    'body' => $body,
+    'token_values' => $tokens,
     'to' => $to,
-    'from' => $tokens['task_assigner'],
+    'from' => $fromName . ($fromEmail !== '' ? ' <' . $fromEmail . '>' : ''),
 ]);

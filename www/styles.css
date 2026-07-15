@@ -475,36 +475,57 @@ h1, h2, h3, .page-title {
   min-width: 38px;
 }
 
-.email-compose-field input {
-  border: 0;
-  border-radius: 0;
-  padding: 0;
+.email-compose-subject {
   font-size: 14px;
   font-weight: 600;
   width: 100%;
+  white-space: nowrap;
+  overflow-x: auto;
 }
 
-.email-compose-field input:focus {
-  outline: none;
-  box-shadow: none;
-  border: 0;
-}
-
-.email-compose textarea {
-  border: 0;
-  border-radius: 0;
-  resize: vertical;
+.email-compose-body {
   padding: 12px 16px;
   font-family: var(--font-body);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
   min-height: 220px;
+  max-height: 45vh;
+  overflow-y: auto;
 }
 
-.email-compose textarea:focus {
+.email-compose-subject:focus,
+.email-compose-body:focus {
   outline: none;
-  box-shadow: none;
-  border: 0;
+}
+
+/* Variables stay [tokens] until send time; shown as light pink tags */
+.token-pill {
+  display: inline-block;
+  background: #fde2ef;
+  color: #b0327a;
+  border: 1px solid #f8c6de;
+  border-radius: 4px;
+  padding: 0 5px;
+  margin: 0 1px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.email-compose-hint {
+  margin: 0;
+  padding: 8px 16px;
+  border-top: 1px solid #eceef5;
+  background: #fafbfe;
+}
+
+.email-compose-hint code {
+  background: #fde2ef;
+  color: #b0327a;
+  border-radius: 3px;
+  padding: 0 3px;
 }
 
 .email-compose-footer {

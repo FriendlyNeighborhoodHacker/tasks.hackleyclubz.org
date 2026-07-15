@@ -126,11 +126,15 @@ dedup (each reassignment notifies).
 
 On the group task list, the group owner/admins have an "Email preview" button
 per task that opens a Gmail-style modal showing the task's scheduled reminder
-email as it would be sent. "Save for scheduled send" stores the edited subject
-and body on the task (`tasks.custom_email_subject/custom_email_body`). A task
-with a saved custom email is sent as its own email (any `[token]`s kept in the
-edited text still render, and a view/complete link is appended); the group's
-single/multi templates then apply only to the remaining tasks.
+email. `[token]` variables are NOT pre-rendered: they appear as light pink
+tags (tooltip shows the current value) and stay variables when saved, so the
+sent email always reflects the task's details at send time. The From line
+shows the configured SMTP sender (SMTP_FROM_NAME <SMTP_FROM_EMAIL>), which is
+who all emails really come from. "Save for scheduled send" stores the edited
+subject and body on the task (`tasks.custom_email_subject/custom_email_body`).
+A task with a saved custom email is sent as its own email (tokens render at
+send time, and a view/complete link is appended); the group's single/multi
+templates then apply only to the remaining tasks.
 
 ---
 

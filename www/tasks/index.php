@@ -206,8 +206,11 @@ header_html($group['name']);
     </div>
     <div class="email-compose-field"><span class="email-compose-label">To</span><span id="em-to"></span></div>
     <div class="email-compose-field"><span class="email-compose-label">From</span><span id="em-from"></span></div>
-    <div class="email-compose-field"><input type="text" id="em-subject" placeholder="Subject"></div>
-    <textarea id="em-body" rows="14"></textarea>
+    <div class="email-compose-field"><div contenteditable="true" id="em-subject" class="email-compose-subject" aria-label="Subject"></div></div>
+    <div contenteditable="true" id="em-body" class="email-compose-body" aria-label="Email body"></div>
+    <p class="email-compose-hint small">Pink tags are <strong>variables</strong> — each email fills them in with the task's
+      details at the moment it is sent, so they stay up to date when the task changes. Everything else is sent as written.
+      Type <code>[task_due_date]</code>-style brackets to add one.</p>
     <div class="email-compose-footer">
       <button type="button" class="email-send-btn" id="em-save">Save for scheduled send</button>
       <button type="button" class="button email-reset-btn hidden" id="em-reset">Reset to template</button>
@@ -221,6 +224,7 @@ header_html($group['name']);
   var modal = document.getElementById('email-modal');
   var csrf = modal.getAttribute('data-csrf');
   var taskId = null;
+  var tokenValues = {};
   var el = function (id) { return document.getElementById(id); };
 
   function setStatus(text, isError) {
@@ -228,15 +232,54 @@ header_html($group['name']);
     el('em-status').style.color = isError ? '#b91c1c' : '#0f5d2f';
   }
 
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // Known [tokens] become pink variable pills (tooltip = today's value);
+  // anything else, bracketed or not, is literal text.
+  function highlightTokens(text) {
+    return esc(text).replace(/\[([a-z_]+)\]/g, function (match, name) {
+      if (!(name in tokenValues)) return match;
+      var value = String(tokenValues[name]) || '(currently empty)';
+      return '<span class="token-pill" title="Current value: ' + esc(value) + '" contenteditable="false">' + match + '</span>';
+    });
+  }
+
+  function setEditor(id, text, multiline) {
+    var html = highlightTokens(text);
+    el(id).innerHTML = multiline ? html.replace(/\n/g, '<br>') : html;
+  }
+
+  // Serialize an editor back to plain text with [tokens] intact.
+  function editorText(node) {
+    var out = '';
+    node.childNodes.forEach(function (child) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += child.textContent;
+      } else if (child.nodeName === 'BR') {
+        out += '\n';
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        // Block elements the browser inserts on Enter start a new line
+        if (/^(DIV|P)$/.test(child.nodeName) && out !== '' && !out.endsWith('\n')) out += '\n';
+        out += editorText(child);
+      }
+    });
+    return out;
+  }
+
   function fill(data) {
     taskId = data.task_id;
+    tokenValues = data.token_values || {};
     el('em-title').textContent = 'Scheduled reminder — ' + data.task_title;
     el('em-to').textContent = data.to;
     el('em-from').textContent = data.from;
-    el('em-subject').value = data.subject;
-    el('em-body').value = data.body;
+    setEditor('em-subject', data.subject, false);
+    setEditor('em-body', data.body, true);
     el('em-reset').classList.toggle('hidden', !data.is_custom);
-    setStatus(data.is_custom ? 'Customized email — the template no longer applies to this task.' : '');
+    setStatus(data.is_custom ? 'Customized email — the group template no longer applies to this task.' : '');
   }
 
   function openPreview(id) {
@@ -268,13 +311,23 @@ header_html($group['name']);
 
   el('em-save').addEventListener('click', function () {
     var params = new URLSearchParams();
-    params.set('subject', el('em-subject').value);
-    params.set('body', el('em-body').value);
+    params.set('subject', editorText(el('em-subject')).replace(/\n/g, ' ').trim());
+    params.set('body', editorText(el('em-body')).trim());
     post(params).then(function (data) {
       if (data.error) { setStatus(data.error, true); return; }
       el('em-reset').classList.remove('hidden');
       setStatus('Saved — this email will be used for this task’s scheduled reminders.');
     }).catch(function () { setStatus('Save failed.', true); });
+  });
+
+  // Single-line subject; typed [tokens] turn into pills once you leave a field.
+  el('em-subject').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') e.preventDefault();
+  });
+  ['em-subject', 'em-body'].forEach(function (id) {
+    el(id).addEventListener('blur', function () {
+      setEditor(id, editorText(el(id)), id === 'em-body');
+    });
   });
 
   el('em-reset').addEventListener('click', function () {
