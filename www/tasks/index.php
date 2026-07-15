@@ -58,30 +58,77 @@ function tasks_view_url(int $groupId, string $view, bool $mine, bool $showDone, 
     return '/tasks/index.php?' . http_build_query($params);
 }
 
+// Board group rail/title colors, monday.com-style: semantic colors for the
+// fixed buckets, a rotating palette for week/category groups.
+function board_group_color(string $label, int $cycleIndex): string {
+    if ($label === 'Overdue') return 'var(--board-red)';
+    if ($label === 'Completed' || $label === 'No due date') return 'var(--board-gray)';
+    $cycle = ['var(--board-blue)', 'var(--board-green)', 'var(--board-purple)', 'var(--board-orange)'];
+    return $cycle[$cycleIndex % count($cycle)];
+}
+
+// Stable avatar color per assignee name.
+function board_avatar_color(string $name): string {
+    $palette = ['#579bfc', '#00c875', '#a25ddc', '#fdab3d', '#e2445c', '#0086c0', '#9d99b9', '#037f4c'];
+    return $palette[crc32($name) % count($palette)];
+}
+
+function board_assignee_html(array $t): string {
+    $name = trim(($t['assignee_first_name'] ?? '') . ' ' . ($t['assignee_last_name'] ?? ''));
+    if ($name === '') return '<span class="unassigned">Unassigned</span>';
+    $initials = strtoupper(mb_substr($t['assignee_first_name'] ?? '', 0, 1) . mb_substr($t['assignee_last_name'] ?? '', 0, 1));
+    if ($initials === '') $initials = strtoupper(mb_substr($name, 0, 1));
+    return '<span class="assignee"><span class="assignee-avatar" style="background:' . h(board_avatar_color($name)) . '">' . h($initials)
+        . '</span><span class="assignee-name">' . h($name) . '</span></span>';
+}
+
+// Due/status column as a monday.com-style colored pill.
+function board_status_html(array $t, string $today): string {
+    if (!empty($t['is_done'])) {
+        $when = $t['completion_date'] ? ' ' . date('M j', strtotime($t['completion_date'])) : '';
+        return '<span class="pill pill-done">✓ Done' . h($when) . '</span>';
+    }
+    $due = $t['due_date'] ?? null;
+    if (!$due) return '<span class="pill pill-none">No due date</span>';
+
+    $days = (int)round((strtotime($due) - strtotime($today)) / 86400);
+    $dateLabel = date('M j', strtotime($due));
+    if (date('Y', strtotime($due)) !== date('Y', strtotime($today))) {
+        $dateLabel = date('M j, Y', strtotime($due));
+    }
+    if ($days < 0) {
+        $n = -$days;
+        return '<span class="pill pill-overdue">' . h($dateLabel) . ' · ' . $n . 'd overdue</span>';
+    }
+    if ($days === 0) return '<span class="pill pill-today">Due today</span>';
+    if ($days <= 30) return '<span class="pill pill-soon">Due ' . h($dateLabel) . '</span>';
+    return '<span class="pill pill-later">Due ' . h($dateLabel) . '</span>';
+}
+
 function tasks_table(array $rows, string $today, bool $showCategory): void {
     ?>
-    <table class="list">
-      <thead><tr><th>Task</th><th>Assigned to</th><?php if ($showCategory): ?><th>Category</th><?php endif; ?><th>Due</th><th></th></tr></thead>
+    <table class="board-table">
+      <thead><tr>
+        <th>Task</th>
+        <th class="col-assignee">Owner</th>
+        <?php if ($showCategory): ?><th class="col-category">Category</th><?php endif; ?>
+        <th class="col-due">Status</th>
+        <th class="col-actions"></th>
+      </tr></thead>
       <tbody>
       <?php foreach ($rows as $t): ?>
         <tr>
-          <td><a href="/tasks/view.php?id=<?=(int)$t['id']?>"><?=h($t['title'])?></a></td>
-          <td><?=h(trim(($t['assignee_first_name'] ?? '') . ' ' . ($t['assignee_last_name'] ?? '')) ?: '—')?></td>
-          <?php if ($showCategory): ?><td><?=h($t['category'] ?? '')?></td><?php endif; ?>
+          <td><a class="board-task-link" href="/tasks/view.php?id=<?=(int)$t['id']?>"><?=h($t['title'])?></a></td>
+          <td><?=board_assignee_html($t)?></td>
+          <?php if ($showCategory): ?><td class="small"><?=h($t['category'] ?? '')?></td><?php endif; ?>
+          <td><?=board_status_html($t, $today)?></td>
           <td>
-            <?php if (!empty($t['is_done'])): ?>
-              <span class="small">Completed <?=h($t['completion_date'] ? date('M j, Y', strtotime($t['completion_date'])) : '')?></span>
-            <?php else: ?>
-              <?=task_due_html($t['due_date'] ?? null, $today)?>
-            <?php endif; ?>
-          </td>
-          <td class="actions">
             <?php if (empty($t['is_done'])): ?>
             <form method="post" action="/tasks/complete_eval.php" style="display:inline">
               <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
               <input type="hidden" name="task_id" value="<?=(int)$t['id']?>">
               <input type="hidden" name="return" value="<?=h($_SERVER['REQUEST_URI'] ?? '/tasks/index.php')?>">
-              <button class="button" type="submit">Done</button>
+              <button class="done-btn" type="submit">Done</button>
             </form>
             <?php endif; ?>
           </td>
@@ -104,21 +151,19 @@ header_html($group['name']);
 <?php if ($msg): ?><p class="flash"><?=h($msg)?></p><?php endif; ?>
 <?php if ($err): ?><p class="error"><?=h($err)?></p><?php endif; ?>
 
-<div class="toolbar">
-  <div class="view-toggle">
-    <a class="button <?=$view==='week'?'primary':''?>" href="<?=h(tasks_view_url($groupId, 'week', $mine, $showDone, $search))?>">By Week</a>
-    <a class="button <?=$view==='category'?'primary':''?>" href="<?=h(tasks_view_url($groupId, 'category', $mine, $showDone, $search))?>">By Category</a>
+<div class="board-toolbar">
+  <div class="seg">
+    <a class="<?=$view==='week'?'active':''?>" href="<?=h(tasks_view_url($groupId, 'week', $mine, $showDone, $search))?>">By Week</a>
+    <a class="<?=$view==='category'?'active':''?>" href="<?=h(tasks_view_url($groupId, 'category', $mine, $showDone, $search))?>">By Category</a>
   </div>
-  <div class="view-toggle">
-    <a class="button <?=$mine?'primary':''?>" href="<?=h(tasks_view_url($groupId, $view, !$mine, $showDone, $search))?>"><?=$mine ? 'Show all tasks' : 'Only my tasks'?></a>
-    <a class="button" href="<?=h(tasks_view_url($groupId, $view, $mine, !$showDone, $search))?>"><?=$showDone ? 'Hide completed' : 'Show completed'?></a>
-  </div>
+  <a class="chip <?=$mine?'active':''?>" href="<?=h(tasks_view_url($groupId, $view, !$mine, $showDone, $search))?>">Only my tasks</a>
+  <a class="chip <?=$showDone?'active':''?>" href="<?=h(tasks_view_url($groupId, $view, $mine, !$showDone, $search))?>">Show completed</a>
   <form method="get" action="/tasks/index.php" data-auto-submit>
     <input type="hidden" name="group_id" value="<?=$groupId?>">
     <input type="hidden" name="view" value="<?=h($view)?>">
     <input type="hidden" name="mine" value="<?=$mine?1:0?>">
     <?php if ($showDone): ?><input type="hidden" name="show_done" value="1"><?php endif; ?>
-    <input type="search" name="q" value="<?=h($search)?>" placeholder="Search tasks…">
+    <input type="search" class="board-search" name="q" value="<?=h($search)?>" placeholder="Search tasks…">
   </form>
 </div>
 
@@ -127,10 +172,17 @@ header_html($group['name']);
     <p>All caught up 🎉<?php if ($mine): ?> — no tasks assigned to you.<?php endif; ?></p>
   </div>
 <?php else: ?>
+  <?php $cycleIndex = 0; ?>
   <?php foreach ($groups as $section): ?>
-    <div class="card">
-      <h3><?=h($section['label'])?></h3>
-      <?php tasks_table($section['tasks'], $today, $view !== 'category'); ?>
+    <?php
+      $color = board_group_color($section['label'], $cycleIndex);
+      if (!in_array($section['label'], ['Overdue', 'Completed', 'No due date'], true)) $cycleIndex++;
+    ?>
+    <div class="board-group" style="--group-color: <?=h($color)?>">
+      <h3 class="board-group-title"><?=h($section['label'])?> <span class="count"><?=count($section['tasks'])?> task<?=count($section['tasks'])===1?'':'s'?></span></h3>
+      <div class="board-card">
+        <?php tasks_table($section['tasks'], $today, $view !== 'category'); ?>
+      </div>
     </div>
   <?php endforeach; ?>
 <?php endif; ?>

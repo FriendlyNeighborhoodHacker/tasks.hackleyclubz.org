@@ -42,6 +42,13 @@
   --color-sidebar-top: #4c1d95;
   --color-sidebar-bottom: #1e1b4b;
   --color-sidebar-text: #ece9fb;
+  /* Board (monday.com-style) group + status colors */
+  --board-blue: #579bfc;
+  --board-green: #00c875;
+  --board-purple: #a25ddc;
+  --board-orange: #fdab3d;
+  --board-red: #e2445c;
+  --board-gray: #797e93;
   --font-display: 'BD Megalona', 'Didot', 'Playfair Display', Georgia, serif;
   --font-body: 'BB Noname Pro', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   --sidebar-width: 172px;
@@ -179,6 +186,234 @@ h1, h2, h3, .page-title {
 .view-toggle {
   display: inline-flex;
   gap: 6px;
+}
+
+/* ===== Board (monday.com-style spreadsheet) — tasks/index.php ===== */
+
+.board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 20px;
+}
+
+/* Segmented view switcher (By Week / By Category) */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.seg a {
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  border-right: 1px solid var(--color-border);
+}
+
+.seg a:last-child {
+  border-right: 0;
+}
+
+.seg a:hover {
+  background: #f5f8ff;
+  color: var(--color-text);
+}
+
+.seg a.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* Filter chips (Only my tasks / Show completed) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.chip:hover {
+  background: #f5f8ff;
+  color: var(--color-text);
+}
+
+.chip.active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: #eef6ff;
+  font-weight: 600;
+}
+
+.board-search {
+  width: 220px;
+  padding: 7px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.board-toolbar form {
+  margin-left: auto;
+}
+
+/* One group section: colored title + white table card with a color rail */
+.board-group {
+  margin-bottom: 26px;
+}
+
+.board-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px 2px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--group-color, var(--board-blue));
+}
+
+.board-group-title .count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.board-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 6px solid var(--group-color, var(--board-blue));
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(26, 26, 46, 0.05);
+  overflow-x: auto;
+}
+
+.board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.board-table th {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.board-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.board-table th + th,
+.board-table td + td {
+  border-left: 1px solid #f4f4f9;
+}
+
+.board-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.board-table tbody tr:hover td {
+  background: #f7f9fd;
+}
+
+.board-table .col-assignee { width: 190px; }
+.board-table .col-category { width: 150px; }
+.board-table .col-due      { width: 200px; }
+.board-table .col-actions  { width: 70px; }
+
+.board-task-link {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.board-task-link:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+/* Assignee: colored initials circle + name */
+.assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.assignee-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  flex: none;
+}
+
+.assignee-name {
+  font-size: 13px;
+}
+
+.unassigned {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* Status pills for due dates / completion */
+.pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.pill-overdue { background: var(--board-red); }
+.pill-today   { background: var(--board-orange); }
+.pill-soon    { background: var(--board-blue); }
+.pill-done    { background: var(--board-green); }
+
+.pill-later,
+.pill-none {
+  background: #eceef5;
+  color: var(--color-text-muted);
+}
+
+/* Subtle per-row Done button: turns green on hover */
+.done-btn {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.done-btn:hover {
+  background: var(--board-green);
+  border-color: var(--board-green);
+  color: #fff;
 }
 
 .comment p {
