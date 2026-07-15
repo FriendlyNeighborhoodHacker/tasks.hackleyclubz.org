@@ -126,9 +126,10 @@ dedup (each reassignment notifies).
 
 On the group task list, the group owner/admins have an "Email preview" button
 per task that opens a Gmail-style modal showing the task's scheduled reminder
-email. `[token]` variables are NOT pre-rendered: they appear as light pink
-tags (tooltip shows the current value) and stay variables when saved, so the
-sent email always reflects the task's details at send time. The From line
+email. `[token]` variables are NOT baked into strings: each appears as a light
+pink tag displaying the task's current value (the tooltip names the variable),
+and saving stores the `[token]` itself, so the sent email always reflects the
+task's details at send time. The From line
 shows the configured SMTP sender (SMTP_FROM_NAME <SMTP_FROM_EMAIL>), which is
 who all emails really come from. "Save for scheduled send" stores the edited
 subject and body on the task (`tasks.custom_email_subject/custom_email_body`).

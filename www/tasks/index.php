@@ -208,9 +208,9 @@ header_html($group['name']);
     <div class="email-compose-field"><span class="email-compose-label">From</span><span id="em-from"></span></div>
     <div class="email-compose-field"><div contenteditable="true" id="em-subject" class="email-compose-subject" aria-label="Subject"></div></div>
     <div contenteditable="true" id="em-body" class="email-compose-body" aria-label="Email body"></div>
-    <p class="email-compose-hint small">Pink tags are <strong>variables</strong> — each email fills them in with the task's
-      details at the moment it is sent, so they stay up to date when the task changes. Everything else is sent as written.
-      Type <code>[task_due_date]</code>-style brackets to add one.</p>
+    <p class="email-compose-hint small">Pink tags are <strong>variables</strong>, shown with today's values — each email
+      re-fills them at the moment it is sent, so they stay up to date when the task changes (hover a tag to see which
+      variable it is). Everything else is sent as written. Type <code>[task_due_date]</code>-style brackets to add one.</p>
     <div class="email-compose-footer">
       <button type="button" class="email-send-btn" id="em-save">Save for scheduled send</button>
       <button type="button" class="button email-reset-btn hidden" id="em-reset">Reset to template</button>
@@ -238,13 +238,16 @@ header_html($group['name']);
     return d.innerHTML;
   }
 
-  // Known [tokens] become pink variable pills (tooltip = today's value);
-  // anything else, bracketed or not, is literal text.
+  // Known [tokens] become pink variable pills showing the task's CURRENT
+  // value (the tooltip names the variable); anything else, bracketed or not,
+  // is literal text. data-token is what gets saved, so it stays a variable.
   function highlightTokens(text) {
     return esc(text).replace(/\[([a-z_]+)\]/g, function (match, name) {
       if (!(name in tokenValues)) return match;
-      var value = String(tokenValues[name]) || '(currently empty)';
-      return '<span class="token-pill" title="Current value: ' + esc(value) + '" contenteditable="false">' + match + '</span>';
+      var value = String(tokenValues[name]);
+      return '<span class="token-pill" data-token="' + match + '"'
+        + ' title="Variable ' + match + ' — updates automatically when the task changes"'
+        + ' contenteditable="false">' + (value !== '' ? esc(value) : match) + '</span>';
     });
   }
 
@@ -253,7 +256,8 @@ header_html($group['name']);
     el(id).innerHTML = multiline ? html.replace(/\n/g, '<br>') : html;
   }
 
-  // Serialize an editor back to plain text with [tokens] intact.
+  // Serialize an editor back to plain text: pills save as their [token], so
+  // what is stored stays a variable even though the pill displayed the value.
   function editorText(node) {
     var out = '';
     node.childNodes.forEach(function (child) {
@@ -262,6 +266,10 @@ header_html($group['name']);
       } else if (child.nodeName === 'BR') {
         out += '\n';
       } else if (child.nodeType === Node.ELEMENT_NODE) {
+        if (child.dataset && child.dataset.token) {
+          out += child.dataset.token;
+          return;
+        }
         // Block elements the browser inserts on Enter start a new line
         if (/^(DIV|P)$/.test(child.nodeName) && out !== '' && !out.endsWith('\n')) out += '\n';
         out += editorText(child);
