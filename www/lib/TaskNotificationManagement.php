@@ -447,16 +447,11 @@ class TaskNotificationManagement {
 
     // ===== Schedule display helpers (task list UI) =====
 
-    // Daily runner send time, for display ('HH:MM', see the cron in
-    // bin/send_daily_notifications.php; configurable via settings).
-    public static function sendTime(): string {
-        return (string)Settings::get('notification_send_time', '07:00');
-    }
-
     /**
-     * When will this task's next reminder email go out?
+     * On what date will this task's next reminder email go out? (The daily
+     * runner's cron decides the time of day, so this is date-only.)
      * Returns null for done tasks / tasks that will never trigger, else
-     * ['at' => 'Y-m-d H:i:s', 'is_custom' => bool, 'daily' => bool] —
+     * ['date' => 'Y-m-d', 'is_custom' => bool, 'daily' => bool] —
      * 'daily' means it re-sends every day while overdue.
      */
     public static function nextScheduledSend(array $task, array $reminderDays, string $today): ?array {
@@ -464,17 +459,16 @@ class TaskNotificationManagement {
 
         $customSendAt = (string)($task['custom_email_send_at'] ?? '');
         if ($customSendAt !== '') {
-            return ['at' => $customSendAt, 'is_custom' => true, 'daily' => false];
+            return ['date' => substr($customSendAt, 0, 10), 'is_custom' => true, 'daily' => false];
         }
 
         $due = (string)($task['due_date'] ?? '');
         if ($due === '') return null;
 
-        $sendTime = self::sendTime() . ':00';
         $daysUntil = self::daysBetween($today, $due);
         if ($daysUntil <= 0) {
             // Due today sends today; overdue re-sends daily until done.
-            return ['at' => $today . ' ' . $sendTime, 'is_custom' => false, 'daily' => $daysUntil < 0];
+            return ['date' => $today, 'is_custom' => false, 'daily' => $daysUntil < 0];
         }
 
         // Earliest upcoming trigger: any "N days in advance" date from today
@@ -484,7 +478,7 @@ class TaskNotificationManagement {
             $date = date('Y-m-d', strtotime($due . ' -' . (int)$days . ' days'));
             if ($date >= $today) $candidates[] = $date;
         }
-        return ['at' => min($candidates) . ' ' . $sendTime, 'is_custom' => false, 'daily' => false];
+        return ['date' => min($candidates), 'is_custom' => false, 'daily' => false];
     }
 
     // Last successfully sent reminder-type email per task: [task_id => sent_at]

@@ -523,6 +523,49 @@ button.pill-btn:hover {
   font-size: 14px;
 }
 
+/* Tiny Edit/Cancel toggle inside a property label */
+.prop-edit-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-left: 6px;
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.prop-edit-link:hover {
+  text-decoration: underline;
+}
+
+.reminders-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.reminders-form input[name="days"] {
+  width: 90px;
+  padding: 4px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.reminders-form .button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.reminders-form .small {
+  flex-basis: 100%;
+}
+
 .task-instructions p {
   margin: 4px 0 2px;
   line-height: 1.6;

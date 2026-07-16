@@ -37,14 +37,14 @@ try {
         ActivityLog::log($ctx, 'task.email_schedule.clear', ['task_id' => $taskId]);
         $_SESSION['success'] = 'Email schedule reset to automatic.';
     } else {
-        // datetime-local submits "YYYY-MM-DDTHH:MM"
-        $ts = DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $sendAt) ?: DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $sendAt);
-        if (!$ts) {
-            throw new InvalidArgumentException('Invalid date/time.');
+        // The date input submits "YYYY-MM-DD"; the daily runner's cron decides
+        // the time of day, so only the date is stored (midnight placeholder).
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $sendAt) || !strtotime($sendAt)) {
+            throw new InvalidArgumentException('Invalid date.');
         }
-        pdo()->prepare('UPDATE tasks SET custom_email_send_at=? WHERE id=?')->execute([$ts->format('Y-m-d H:i:s'), $taskId]);
-        ActivityLog::log($ctx, 'task.email_schedule.set', ['task_id' => $taskId, 'send_at' => $ts->format('Y-m-d H:i:s')]);
-        $_SESSION['success'] = 'Email scheduled for ' . $ts->format('M j g:i A') . '.';
+        pdo()->prepare('UPDATE tasks SET custom_email_send_at=? WHERE id=?')->execute([$sendAt . ' 00:00:00', $taskId]);
+        ActivityLog::log($ctx, 'task.email_schedule.set', ['task_id' => $taskId, 'send_at' => $sendAt]);
+        $_SESSION['success'] = 'Email scheduled for ' . date('M j', strtotime($sendAt)) . '.';
     }
 } catch (Throwable $e) {
     $_SESSION['error'] = $e->getMessage();

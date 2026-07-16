@@ -325,21 +325,21 @@ final class TaskNotificationManagementTest extends TestCase
 
         // Earliest of (due - reminder days >= today) and the due date itself
         $next = TaskNotificationManagement::nextScheduledSend($task, [7, 3], '2026-07-15');
-        $this->assertSame('2026-07-23', substr($next['at'], 0, 10));
+        $this->assertSame('2026-07-23', $next['date']);
         $this->assertFalse($next['is_custom']);
         $this->assertFalse($next['daily']);
 
-        // Admin-set time wins
-        $task['custom_email_send_at'] = '2026-07-20 09:30:00';
+        // Admin-set date wins
+        $task['custom_email_send_at'] = '2026-07-20 00:00:00';
         $next = TaskNotificationManagement::nextScheduledSend($task, [7], '2026-07-15');
-        $this->assertSame('2026-07-20 09:30:00', $next['at']);
+        $this->assertSame('2026-07-20', $next['date']);
         $this->assertTrue($next['is_custom']);
 
         // Overdue: daily
         $task['custom_email_send_at'] = null;
         $next = TaskNotificationManagement::nextScheduledSend($task, [], '2026-08-05');
         $this->assertTrue($next['daily']);
-        $this->assertSame('2026-08-05', substr($next['at'], 0, 10));
+        $this->assertSame('2026-08-05', $next['date']);
 
         // Done or no due date: nothing scheduled
         $this->assertNull(TaskNotificationManagement::nextScheduledSend(['is_done' => 1, 'due_date' => '2026-07-30'], [], '2026-07-15'));

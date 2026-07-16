@@ -107,9 +107,9 @@ function board_status_html(array $t, string $today): string {
     return '<span class="pill pill-later">Due ' . h($dateLabel) . '</span>';
 }
 
-// "Email sends" cell: when the task's next reminder email goes out. Group
-// admins can click it to set an exact date & time (or clear back to the
-// automatic schedule).
+// "Email sends" cell: the date the task's next reminder email goes out (the
+// daily runner's cron decides the time of day). Group admins can click it to
+// pick a date (or clear back to the automatic schedule).
 function board_schedule_html(array $t, string $today, array $reminderDays, bool $isGroupAdmin): string {
     $sched = TaskNotificationManagement::nextScheduledSend($t, $reminderDays, $today);
 
@@ -117,23 +117,22 @@ function board_schedule_html(array $t, string $today, array $reminderDays, bool 
         $label = '<span class="small">' . (empty($t['is_done']) ? 'No due date — not scheduled' : '—') . '</span>';
         if (!empty($t['is_done'])) return $label;
     } else {
-        $ts = strtotime($sched['at']);
         $label = '<span class="sched-when' . ($sched['is_custom'] ? ' custom' : '') . '">'
-            . ($sched['daily'] ? 'Daily at ' . date('g:i A', $ts) . ' <span class="small">(overdue)</span>'
-                               : h(date('M j', $ts)) . ' · ' . date('g:i A', $ts))
+            . ($sched['daily'] ? 'Daily <span class="small">(overdue)</span>'
+                               : h(date('M j', strtotime($sched['date']))))
             . ($sched['is_custom'] ? ' <span class="sched-custom-badge">custom</span>' : '')
             . '</span>';
     }
 
     if (!$isGroupAdmin) return $label;
 
-    $value = ($sched && $sched['is_custom']) ? date('Y-m-d\TH:i', strtotime($sched['at'])) : '';
+    $value = ($sched && $sched['is_custom']) ? $sched['date'] : '';
     return '<details class="sched-edit"><summary>' . $label . '</summary>'
         . '<form method="post" action="/tasks/schedule_eval.php" class="sched-form">'
         . '<input type="hidden" name="csrf" value="' . h(csrf_token()) . '">'
         . '<input type="hidden" name="task_id" value="' . (int)$t['id'] . '">'
         . '<input type="hidden" name="return" value="' . h($_SERVER['REQUEST_URI'] ?? '/tasks/index.php') . '">'
-        . '<input type="datetime-local" name="send_at" value="' . h($value) . '">'
+        . '<input type="date" name="send_at" value="' . h($value) . '">'
         . '<button class="button primary" type="submit">Set</button>'
         . ($value !== '' ? '<button class="button" type="submit" name="send_at" value="">Auto</button>' : '')
         . '</form></details>';

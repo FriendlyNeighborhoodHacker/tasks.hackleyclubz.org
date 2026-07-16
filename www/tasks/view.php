@@ -30,6 +30,7 @@ unset($_SESSION['success'], $_SESSION['error'], $_SESSION['form_data']);
 
 $creator = trim(($task['creator_first_name'] ?? '') . ' ' . ($task['creator_last_name'] ?? ''));
 $completer = trim(($task['completer_first_name'] ?? '') . ' ' . ($task['completer_last_name'] ?? ''));
+$canManage = GroupManagement::canManageGroup($ctx, $groupId);
 
 // Status pill + the card's rail color, matching the task list's palette.
 $due = $task['due_date'] ?? null;
@@ -92,12 +93,35 @@ header_html($task['title']);
     <div><?=person_chip_html($task['assignee_first_name'] ?? '', $task['assignee_last_name'] ?? '')?></div>
   </div>
   <div class="task-prop">
-    <div class="task-prop-label">Reminders</div>
-    <div class="task-prop-value">
+    <div class="task-prop-label">Reminders
+      <?php if ($canManage): ?><button type="button" class="prop-edit-link" id="remindersEditBtn">Edit</button><?php endif; ?>
+    </div>
+    <div class="task-prop-value" id="remindersText">
       <?php if ($reminders): ?>
         <?=h(implode(', ', array_map(fn($r) => $r['days_in_advance'] . ' day' . ((int)$r['days_in_advance'] === 1 ? '' : 's') . ' before', $reminders)))?>
       <?php else: ?><span class="small">None</span><?php endif; ?>
     </div>
+    <?php if ($canManage): ?>
+    <form method="post" action="/tasks/reminders_eval.php" class="reminders-form hidden" id="remindersForm">
+      <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
+      <input type="hidden" name="task_id" value="<?=$taskId?>">
+      <input type="text" name="days" value="<?=h(implode(', ', array_map(fn($r) => (string)$r['days_in_advance'], $reminders)))?>" placeholder="e.g. 7, 1" title="Days before the due date, comma-separated">
+      <button class="button primary" type="submit">Save</button>
+      <div class="small">days before the due date — blank for none</div>
+    </form>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var btn = document.getElementById('remindersEditBtn');
+      btn.addEventListener('click', function () {
+        var form = document.getElementById('remindersForm');
+        var formHidden = form.classList.toggle('hidden');
+        document.getElementById('remindersText').classList.toggle('hidden', !formHidden);
+        btn.textContent = formHidden ? 'Edit' : 'Cancel';
+        if (!formHidden) form.querySelector('input[name="days"]').focus();
+      });
+    });
+    </script>
+    <?php endif; ?>
   </div>
   <div class="task-prop">
     <div class="task-prop-label">Created by</div>
@@ -105,7 +129,6 @@ header_html($task['title']);
   </div>
 </div>
 
-<?php $canManage = GroupManagement::canManageGroup($ctx, $groupId); ?>
 <?php if (!empty($task['description']) || $canManage): ?>
 <div class="card task-instructions">
   <div class="card-head-row">
