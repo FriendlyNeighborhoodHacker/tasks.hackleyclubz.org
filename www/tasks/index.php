@@ -74,19 +74,9 @@ function board_group_color(string $label, int $cycleIndex): string {
     return $cycle[$cycleIndex % count($cycle)];
 }
 
-// Stable avatar color per assignee name.
-function board_avatar_color(string $name): string {
-    $palette = ['#579bfc', '#00c875', '#a25ddc', '#fdab3d', '#e2445c', '#0086c0', '#9d99b9', '#037f4c'];
-    return $palette[crc32($name) % count($palette)];
-}
-
+// Assignee chip (shared person_chip_html lives in partials.php).
 function board_assignee_html(array $t): string {
-    $name = trim(($t['assignee_first_name'] ?? '') . ' ' . ($t['assignee_last_name'] ?? ''));
-    if ($name === '') return '<span class="unassigned">Unassigned</span>';
-    $initials = strtoupper(mb_substr($t['assignee_first_name'] ?? '', 0, 1) . mb_substr($t['assignee_last_name'] ?? '', 0, 1));
-    if ($initials === '') $initials = strtoupper(mb_substr($name, 0, 1));
-    return '<span class="assignee"><span class="assignee-avatar" style="background:' . h(board_avatar_color($name)) . '">' . h($initials)
-        . '</span><span class="assignee-name">' . h($name) . '</span></span>';
+    return person_chip_html($t['assignee_first_name'] ?? '', $t['assignee_last_name'] ?? '');
 }
 
 // Due/status column as a monday.com-style colored pill. For completed tasks
