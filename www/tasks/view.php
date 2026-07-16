@@ -105,42 +105,44 @@ header_html($task['title']);
   </div>
 </div>
 
-<?php if (!empty($task['description'])): ?>
+<?php $canManage = GroupManagement::canManageGroup($ctx, $groupId); ?>
+<?php if (!empty($task['description']) || $canManage): ?>
 <div class="card task-instructions">
-  <h3>Instructions</h3>
-  <p><?=nl2br(h($task['description']))?></p>
+  <div class="card-head-row">
+    <h3>Instructions</h3>
+    <?php if ($canManage): ?>
+      <button type="button" class="edit-btn" id="instructionsEditBtn">✏️ Edit</button>
+    <?php endif; ?>
+  </div>
+  <p id="instructionsText"><?php if (!empty($task['description'])): ?><?=nl2br(h($task['description']))?><?php else: ?><span class="small">No instructions yet.</span><?php endif; ?></p>
+  <?php if ($canManage): ?>
+    <form method="post" action="/tasks/instructions_eval.php" class="stack hidden" id="instructionsForm">
+      <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
+      <input type="hidden" name="task_id" value="<?=$taskId?>">
+      <textarea name="description" rows="5" placeholder="How to complete this task…"><?=h($task['description'] ?? '')?></textarea>
+      <div class="actions">
+        <button class="primary" type="submit">Save Instructions</button>
+        <button class="button" type="button" id="instructionsCancelBtn">Cancel</button>
+      </div>
+    </form>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var text = document.getElementById('instructionsText');
+      var form = document.getElementById('instructionsForm');
+      var editBtn = document.getElementById('instructionsEditBtn');
+      function toggle(editing) {
+        form.classList.toggle('hidden', !editing);
+        text.classList.toggle('hidden', editing);
+        editBtn.classList.toggle('hidden', editing);
+        if (editing) form.querySelector('textarea').focus();
+      }
+      editBtn.addEventListener('click', function () { toggle(true); });
+      document.getElementById('instructionsCancelBtn').addEventListener('click', function () { toggle(false); });
+    });
+    </script>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
-
-<div class="card">
-  <h3>Add an Update</h3>
-  <form method="post" action="/tasks/comment_add_eval.php" enctype="multipart/form-data" class="stack">
-    <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
-    <input type="hidden" name="task_id" value="<?=$taskId?>">
-    <textarea name="comment" rows="3" placeholder="Write an update — progress note, question, or result…"><?=h($form['comment'] ?? '')?></textarea>
-    <label class="inline update-attach">📎 Attach a file
-      <input type="file" name="attachment">
-    </label>
-    <?php if (!$isDone): ?>
-      <label class="inline"><input type="checkbox" name="mark_complete" value="1" id="markCompleteBox"> Mark this task <span class="prompt-em">complete</span></label>
-      <label id="completedOnRow" style="display:none;">Completed on
-        <input type="date" name="completed_on" value="<?=h($today)?>">
-      </label>
-      <script>
-      document.addEventListener('DOMContentLoaded', function () {
-        var box = document.getElementById('markCompleteBox');
-        var row = document.getElementById('completedOnRow');
-        function sync() { row.style.display = box.checked ? '' : 'none'; }
-        box.addEventListener('change', sync);
-        sync();
-      });
-      </script>
-    <?php endif; ?>
-    <div class="actions">
-      <button class="primary" type="submit">Post Update</button>
-    </div>
-  </form>
-</div>
 
 <div class="card">
   <h3>History</h3>

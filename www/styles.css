@@ -528,6 +528,33 @@ button.pill-btn:hover {
   line-height: 1.6;
 }
 
+.card-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card-head-row h3 {
+  margin: 6px 0;
+}
+
+/* Subtle inline-edit affordance (admin-only controls) */
+.edit-btn {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.edit-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: #eef6ff;
+}
+
 .update-attach {
   color: var(--color-text-muted);
   font-size: 13px;
