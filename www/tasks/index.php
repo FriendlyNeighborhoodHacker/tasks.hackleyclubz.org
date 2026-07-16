@@ -108,9 +108,6 @@ function board_status_html(array $t, string $today): string {
 
     $days = (int)round((strtotime($due) - strtotime($today)) / 86400);
     $dateLabel = date('M j', strtotime($due));
-    if (date('Y', strtotime($due)) !== date('Y', strtotime($today))) {
-        $dateLabel = date('M j, Y', strtotime($due));
-    }
     if ($days < 0) {
         $n = -$days;
         return '<span class="pill pill-overdue">' . h($dateLabel) . ' · ' . $n . 'd overdue</span>';
@@ -133,7 +130,7 @@ function board_schedule_html(array $t, string $today, array $reminderDays, bool 
         $ts = strtotime($sched['at']);
         $label = '<span class="sched-when' . ($sched['is_custom'] ? ' custom' : '') . '">'
             . ($sched['daily'] ? 'Daily at ' . date('g:i A', $ts) . ' <span class="small">(overdue)</span>'
-                               : h(date('M j, Y', $ts)) . ' · ' . date('g:i A', $ts))
+                               : h(date('M j', $ts)) . ' · ' . date('g:i A', $ts))
             . ($sched['is_custom'] ? ' <span class="sched-custom-badge">custom</span>' : '')
             . '</span>';
     }
@@ -156,7 +153,7 @@ function board_schedule_html(array $t, string $today, array $reminderDays, bool 
 function board_sent_html(array $t, array $lastSentByTask): string {
     $last = $lastSentByTask[(int)$t['id']] ?? null;
     if ($last) {
-        return '<span class="sent-yes" title="Last sent ' . h(date('M j, Y g:i A', strtotime($last))) . '">✓ Sent ' . h(date('M j', strtotime($last))) . '</span>';
+        return '<span class="sent-yes" title="Last sent ' . h(date('M j, g:i A', strtotime($last))) . '">✓ Sent ' . h(date('M j', strtotime($last))) . '</span>';
     }
     return empty($t['is_done']) ? '<span class="small">Not yet</span>' : '<span class="small">—</span>';
 }

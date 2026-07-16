@@ -470,9 +470,6 @@ class TaskManagement {
                 $label = 'This Week';
             } else {
                 $label = 'Week of ' . date('D M j', $mondayTs);
-                if (date('Y', $mondayTs) !== date('Y', $todayTs)) {
-                    $label .= ', ' . date('Y', $mondayTs);
-                }
             }
             $groups[] = ['label' => $label, 'tasks' => $rows];
         }

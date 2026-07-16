@@ -44,7 +44,7 @@ try {
         }
         pdo()->prepare('UPDATE tasks SET custom_email_send_at=? WHERE id=?')->execute([$ts->format('Y-m-d H:i:s'), $taskId]);
         ActivityLog::log($ctx, 'task.email_schedule.set', ['task_id' => $taskId, 'send_at' => $ts->format('Y-m-d H:i:s')]);
-        $_SESSION['success'] = 'Email scheduled for ' . $ts->format('M j, Y g:i A') . '.';
+        $_SESSION['success'] = 'Email scheduled for ' . $ts->format('M j g:i A') . '.';
     }
 } catch (Throwable $e) {
     $_SESSION['error'] = $e->getMessage();

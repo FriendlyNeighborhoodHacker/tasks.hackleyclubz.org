@@ -274,7 +274,7 @@ final class TaskManagementTest extends TestCase
         $this->assertSame('Overdue', $labels[0]);
         $this->assertContains('This Week', $labels);
         $this->assertContains('Week of Mon Jul 20', $labels);
-        $this->assertContains('Week of Mon Jan 4, 2027', $labels);
+        $this->assertContains('Week of Mon Jan 4', $labels);
         $this->assertContains('No due date', $labels);
         $this->assertSame('Completed', $labels[count($labels) - 1]);
 
