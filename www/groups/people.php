@@ -25,7 +25,12 @@ $members = GroupManagement::listMembers($groupId);
 
 header_html('People - ' . $group['name']);
 ?>
-<h2><?=h($group['name'])?> — People</h2>
+<div class="page-head">
+  <h2><?=h($group['name'])?> — People</h2>
+  <div class="actions">
+    <button type="button" class="plus-btn" id="addPersonBtn" title="Add a person" aria-label="Add a person">+</button>
+  </div>
+</div>
 <?php if ($msg): ?><p class="flash"><?=h($msg)?></p><?php endif; ?>
 <?php if ($err): ?><p class="error"><?=h($err)?></p><?php endif; ?>
 
@@ -91,36 +96,62 @@ header_html('People - ' . $group['name']);
   </table>
 </div>
 
-<div class="card">
-  <h3>Add a Person</h3>
-  <p><span class="prompt-em">Enter their name and email.</span> If they are new here, an account is created for them — sending an invitation is optional; they will get task emails either way.</p>
-  <form method="post" action="/groups/people_add_eval.php" class="stack">
-    <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
-    <input type="hidden" name="group_id" value="<?=$groupId?>">
-    <div class="grid">
-      <label>First name
-        <input type="text" name="first_name" value="<?=h($form['first_name'] ?? '')?>" required>
-      </label>
-      <label>Last name
-        <input type="text" name="last_name" value="<?=h($form['last_name'] ?? '')?>" required>
-      </label>
-      <label>Email
-        <input type="email" name="email" value="<?=h($form['email'] ?? '')?>" required>
-      </label>
-      <?php if ($isOwner): ?>
-      <label>Role
-        <select name="role">
-          <option value="member">Member</option>
-          <option value="admin" <?=($form['role'] ?? '')==='admin'?'selected':''?>>Admin</option>
-        </select>
-      </label>
-      <?php endif; ?>
-    </div>
-    <label class="inline"><input type="checkbox" name="send_invite" value="1" <?=!empty($form['send_invite'])?'checked':''?>> Email them an invitation to set a password</label>
-    <div class="actions">
-      <button class="primary" type="submit">Add Person</button>
-    </div>
-  </form>
+<!-- Add-a-person modal, opened by the + button (re-opens automatically when a
+     failed submission bounces back with form data). -->
+<div class="modal hidden" id="add-person-modal">
+  <div class="modal-content">
+    <button type="button" class="close" id="addPersonClose" aria-label="Close">×</button>
+    <h3>Add a Person</h3>
+    <p><span class="prompt-em">Enter their name and email.</span> If they are new here, an account is created for them — sending an invitation is optional; they will get task emails either way.</p>
+    <form method="post" action="/groups/people_add_eval.php" class="stack">
+      <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
+      <input type="hidden" name="group_id" value="<?=$groupId?>">
+      <div class="grid">
+        <label>First name
+          <input type="text" name="first_name" value="<?=h($form['first_name'] ?? '')?>" required>
+        </label>
+        <label>Last name
+          <input type="text" name="last_name" value="<?=h($form['last_name'] ?? '')?>" required>
+        </label>
+        <label>Email
+          <input type="email" name="email" value="<?=h($form['email'] ?? '')?>" required>
+        </label>
+        <?php if ($isOwner): ?>
+        <label>Role
+          <select name="role">
+            <option value="member">Member</option>
+            <option value="admin" <?=($form['role'] ?? '')==='admin'?'selected':''?>>Admin</option>
+          </select>
+        </label>
+        <?php endif; ?>
+      </div>
+      <label class="inline"><input type="checkbox" name="send_invite" value="1" <?=!empty($form['send_invite'])?'checked':''?>> Email them an invitation to set a password</label>
+      <div class="actions">
+        <button class="primary" type="submit">Add Person</button>
+      </div>
+    </form>
+  </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var modal = document.getElementById('add-person-modal');
+  function open() {
+    modal.classList.remove('hidden');
+    var first = modal.querySelector('input[name="first_name"]');
+    if (first) first.focus();
+  }
+  function close() { modal.classList.add('hidden'); }
+
+  document.getElementById('addPersonBtn').addEventListener('click', open);
+  document.getElementById('addPersonClose').addEventListener('click', close);
+  modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+  });
+
+  <?php if ($form): ?>open();<?php endif; ?>
+});
+</script>
 
 <?php footer_html(); ?>
