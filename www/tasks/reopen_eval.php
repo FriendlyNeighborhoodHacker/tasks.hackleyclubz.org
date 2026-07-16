@@ -13,14 +13,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 require_csrf();
 
 $taskId = (int)($_POST['task_id'] ?? 0);
+$return = validate_relative_next_path($_POST['return'] ?? '');
+if ($return === '') {
+    $return = '/tasks/view.php?id=' . $taskId;
+}
 
 try {
     $ctx = UserContext::getLoggedInUserContext();
     TaskManagement::reopenTask($ctx, $taskId);
-    $_SESSION['success'] = 'Task reopened.';
+    $_SESSION['success'] = 'Task marked as incomplete.';
 } catch (Throwable $e) {
     $_SESSION['error'] = $e->getMessage();
 }
 
-header('Location: /tasks/view.php?id=' . $taskId);
+header('Location: ' . $return);
 exit;

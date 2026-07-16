@@ -332,10 +332,11 @@ h1, h2, h3, .page-title {
   background: #f7f9fd;
 }
 
-.board-table .col-assignee { width: 190px; }
-.board-table .col-category { width: 150px; }
-.board-table .col-due      { width: 200px; }
-.board-table .col-actions  { width: 70px; }
+.board-table .col-assignee { width: 170px; }
+.board-table .col-due      { width: 150px; }
+.board-table .col-sched    { width: 185px; }
+.board-table .col-sent     { width: 105px; }
+.board-table .col-actions  { width: 150px; }
 
 .board-task-link {
   color: var(--color-text);
@@ -400,7 +401,84 @@ h1, h2, h3, .page-title {
   color: var(--color-text-muted);
 }
 
+/* Completed pill doubles as a button: click to mark incomplete again */
+button.pill-btn {
+  border: 0;
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+
+button.pill-btn:hover {
+  background: #00a25e;
+  box-shadow: 0 1px 4px rgba(0, 200, 117, 0.4);
+}
+
 .board-table .col-email { width: 130px; }
+
+/* "Email sends" column: next scheduled send; admins expand to edit */
+.sched-when {
+  font-size: 12.5px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.sched-custom-badge {
+  display: inline-block;
+  background: #dcecfd;
+  color: #1567c4;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: 1px;
+}
+
+.sched-edit summary {
+  list-style: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+.sched-edit summary::-webkit-details-marker {
+  display: none;
+}
+
+.sched-edit summary:hover .sched-when {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.sched-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sched-form input[type="datetime-local"] {
+  width: auto;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.sched-form .button,
+.sched-form button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+/* "Sent" column */
+.sent-yes {
+  color: var(--board-green);
+  font-weight: 600;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
 
 .email-preview-btn {
   background: var(--color-surface);
@@ -498,20 +576,17 @@ h1, h2, h3, .page-title {
   outline: none;
 }
 
-/* Variables stay [tokens] until send time; shown as light blue tags */
+/* Variables stay [tokens] until send time; shown as plain blue text so it is
+   clear the site fills them in (no tag box) */
 .token-pill {
-  display: inline-block;
-  background: #dcecfd;
   color: #1567c4;
-  border: 1px solid #b7d9f9;
-  border-radius: 4px;
-  padding: 0 5px;
-  margin: 0 1px;
-  font-size: 12px;
   font-weight: 600;
-  line-height: 1.6;
   white-space: nowrap;
   cursor: default;
+}
+
+.email-compose-hint .hint-blue {
+  color: #1567c4;
 }
 
 .email-compose-hint {

@@ -1,10 +1,11 @@
 <?php
-// A group's tasks: by-week view (default) with an alternate by-category view,
+// A group's tasks: by-week view (default) with an alternate by-owner view,
 // plus an "only my tasks" toggle. Group admins default to all tasks; regular
 // members default to just their own (see docs/app-spec.md).
 require_once __DIR__ . '/../partials.php';
 require_once __DIR__ . '/../lib/GroupManagement.php';
 require_once __DIR__ . '/../lib/TaskManagement.php';
+require_once __DIR__ . '/../lib/TaskNotificationManagement.php';
 Application::init();
 require_login();
 
@@ -32,7 +33,7 @@ if (GroupManagement::isMember($ctx->id, $groupId)) {
 
 $isGroupAdmin = $ctx->admin || GroupManagement::isGroupAdmin($ctx->id, $groupId);
 
-$view = ($_GET['view'] ?? 'week') === 'category' ? 'category' : 'week';
+$view = ($_GET['view'] ?? 'week') === 'owner' ? 'owner' : 'week';
 $mine = isset($_GET['mine']) ? !empty($_GET['mine']) : !$isGroupAdmin;
 $showDone = !empty($_GET['show_done']);
 $search = trim((string)($_GET['q'] ?? ''));
@@ -43,9 +44,14 @@ if ($mine) $filters['assigned_to_user_id'] = $ctx->id;
 
 $tasks = TaskManagement::listTasks($groupId, $filters);
 $today = date('Y-m-d');
-$groups = $view === 'category'
-    ? TaskManagement::groupTasksByCategory($tasks)
+$groups = $view === 'owner'
+    ? TaskManagement::groupTasksByOwner($tasks)
     : TaskManagement::groupTasksByWeek($tasks, $today);
+
+// Email-schedule data for the admin columns (next send / already sent).
+$taskIds = array_map('intval', array_column($tasks, 'id'));
+$remindersByTask = $isGroupAdmin ? TaskManagement::remindersByTask($taskIds) : [];
+$lastSentByTask = $isGroupAdmin ? TaskNotificationManagement::lastReminderSentByTask($taskIds) : [];
 
 $msg = $_SESSION['success'] ?? null;
 $err = $_SESSION['error'] ?? null;
@@ -59,10 +65,11 @@ function tasks_view_url(int $groupId, string $view, bool $mine, bool $showDone, 
 }
 
 // Board group rail/title colors, monday.com-style: semantic colors for the
-// fixed buckets, a rotating palette for week/category groups.
+// fixed buckets, a rotating palette for week/owner groups.
 function board_group_color(string $label, int $cycleIndex): string {
     if ($label === 'Overdue') return 'var(--board-red)';
-    if ($label === 'Completed' || $label === 'No due date') return 'var(--board-gray)';
+    if ($label === 'Completed') return 'var(--board-green)';
+    if ($label === 'No due date' || $label === 'Unassigned') return 'var(--board-gray)';
     $cycle = ['var(--board-blue)', 'var(--board-green)', 'var(--board-purple)', 'var(--board-orange)'];
     return $cycle[$cycleIndex % count($cycle)];
 }
@@ -82,11 +89,19 @@ function board_assignee_html(array $t): string {
         . '</span><span class="assignee-name">' . h($name) . '</span></span>';
 }
 
-// Due/status column as a monday.com-style colored pill.
+// Due/status column as a monday.com-style colored pill. For completed tasks
+// the pill is a button: clicking it (with a confirm) marks the task
+// incomplete again via reopen_eval.php.
 function board_status_html(array $t, string $today): string {
     if (!empty($t['is_done'])) {
         $when = $t['completion_date'] ? ' ' . date('M j', strtotime($t['completion_date'])) : '';
-        return '<span class="pill pill-done">✓ Done' . h($when) . '</span>';
+        return '<form method="post" action="/tasks/reopen_eval.php" style="display:inline">'
+            . '<input type="hidden" name="csrf" value="' . h(csrf_token()) . '">'
+            . '<input type="hidden" name="task_id" value="' . (int)$t['id'] . '">'
+            . '<input type="hidden" name="return" value="' . h($_SERVER['REQUEST_URI'] ?? '/tasks/index.php') . '">'
+            . '<button type="submit" class="pill pill-done pill-btn" data-confirm="Mark this task as incomplete? It will go back to the open tasks."'
+            . ' title="Click to mark as incomplete">✓ Done' . h($when) . '</button>'
+            . '</form>';
     }
     $due = $t['due_date'] ?? null;
     if (!$due) return '<span class="pill pill-none">No due date</span>';
@@ -105,28 +120,73 @@ function board_status_html(array $t, string $today): string {
     return '<span class="pill pill-later">Due ' . h($dateLabel) . '</span>';
 }
 
-function tasks_table(array $rows, string $today, bool $showCategory, bool $showEmailCol): void {
+// "Email sends" cell: when the task's next reminder email goes out. Group
+// admins can click it to set an exact date & time (or clear back to the
+// automatic schedule).
+function board_schedule_html(array $t, string $today, array $reminderDays, bool $isGroupAdmin): string {
+    $sched = TaskNotificationManagement::nextScheduledSend($t, $reminderDays, $today);
+
+    if ($sched === null) {
+        $label = '<span class="small">' . (empty($t['is_done']) ? 'No due date — not scheduled' : '—') . '</span>';
+        if (!empty($t['is_done'])) return $label;
+    } else {
+        $ts = strtotime($sched['at']);
+        $label = '<span class="sched-when' . ($sched['is_custom'] ? ' custom' : '') . '">'
+            . ($sched['daily'] ? 'Daily at ' . date('g:i A', $ts) . ' <span class="small">(overdue)</span>'
+                               : h(date('M j, Y', $ts)) . ' · ' . date('g:i A', $ts))
+            . ($sched['is_custom'] ? ' <span class="sched-custom-badge">custom</span>' : '')
+            . '</span>';
+    }
+
+    if (!$isGroupAdmin) return $label;
+
+    $value = ($sched && $sched['is_custom']) ? date('Y-m-d\TH:i', strtotime($sched['at'])) : '';
+    return '<details class="sched-edit"><summary>' . $label . '</summary>'
+        . '<form method="post" action="/tasks/schedule_eval.php" class="sched-form">'
+        . '<input type="hidden" name="csrf" value="' . h(csrf_token()) . '">'
+        . '<input type="hidden" name="task_id" value="' . (int)$t['id'] . '">'
+        . '<input type="hidden" name="return" value="' . h($_SERVER['REQUEST_URI'] ?? '/tasks/index.php') . '">'
+        . '<input type="datetime-local" name="send_at" value="' . h($value) . '">'
+        . '<button class="button primary" type="submit">Set</button>'
+        . ($value !== '' ? '<button class="button" type="submit" name="send_at" value="">Auto</button>' : '')
+        . '</form></details>';
+}
+
+// "Sent" cell: has this task's reminder email already gone out?
+function board_sent_html(array $t, array $lastSentByTask): string {
+    $last = $lastSentByTask[(int)$t['id']] ?? null;
+    if ($last) {
+        return '<span class="sent-yes" title="Last sent ' . h(date('M j, Y g:i A', strtotime($last))) . '">✓ Sent ' . h(date('M j', strtotime($last))) . '</span>';
+    }
+    return empty($t['is_done']) ? '<span class="small">Not yet</span>' : '<span class="small">—</span>';
+}
+
+function tasks_table(array $rows, string $today, bool $isGroupAdmin, array $remindersByTask, array $lastSentByTask): void {
     ?>
     <table class="board-table">
       <thead><tr>
         <th>Task</th>
         <th class="col-assignee">Owner</th>
-        <?php if ($showCategory): ?><th class="col-category">Category</th><?php endif; ?>
         <th class="col-due">Status</th>
-        <?php if ($showEmailCol): ?><th class="col-email">Email</th><?php endif; ?>
+        <?php if ($isGroupAdmin): ?>
+        <th class="col-sched">Email sends</th>
+        <th class="col-sent">Sent</th>
+        <th class="col-email">Email</th>
+        <?php endif; ?>
         <th class="col-actions"></th>
       </tr></thead>
       <tbody>
-      <?php foreach ($rows as $t): ?>
+      <?php foreach ($rows as $t): $tid = (int)$t['id']; ?>
         <tr>
-          <td><a class="board-task-link" href="/tasks/view.php?id=<?=(int)$t['id']?>"><?=h($t['title'])?></a></td>
+          <td><a class="board-task-link" href="/tasks/view.php?id=<?=$tid?>"><?=h($t['title'])?></a></td>
           <td><?=board_assignee_html($t)?></td>
-          <?php if ($showCategory): ?><td class="small"><?=h($t['category'] ?? '')?></td><?php endif; ?>
           <td><?=board_status_html($t, $today)?></td>
-          <?php if ($showEmailCol): ?>
+          <?php if ($isGroupAdmin): ?>
+          <td><?=board_schedule_html($t, $today, $remindersByTask[$tid] ?? [], true)?></td>
+          <td><?=board_sent_html($t, $lastSentByTask)?></td>
           <td>
             <?php if (empty($t['is_done'])): ?>
-            <button type="button" class="email-preview-btn" data-task-id="<?=(int)$t['id']?>">✉ Email preview</button>
+            <button type="button" class="email-preview-btn" data-task-id="<?=$tid?>">✉ Email preview</button>
             <?php endif; ?>
           </td>
           <?php endif; ?>
@@ -134,9 +194,9 @@ function tasks_table(array $rows, string $today, bool $showCategory, bool $showE
             <?php if (empty($t['is_done'])): ?>
             <form method="post" action="/tasks/complete_eval.php" style="display:inline">
               <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
-              <input type="hidden" name="task_id" value="<?=(int)$t['id']?>">
+              <input type="hidden" name="task_id" value="<?=$tid?>">
               <input type="hidden" name="return" value="<?=h($_SERVER['REQUEST_URI'] ?? '/tasks/index.php')?>">
-              <button class="done-btn" type="submit">Done</button>
+              <button class="done-btn" type="submit">Mark as complete</button>
             </form>
             <?php endif; ?>
           </td>
@@ -162,7 +222,7 @@ header_html($group['name']);
 <div class="board-toolbar">
   <div class="seg">
     <a class="<?=$view==='week'?'active':''?>" href="<?=h(tasks_view_url($groupId, 'week', $mine, $showDone, $search))?>">By Week</a>
-    <a class="<?=$view==='category'?'active':''?>" href="<?=h(tasks_view_url($groupId, 'category', $mine, $showDone, $search))?>">By Category</a>
+    <a class="<?=$view==='owner'?'active':''?>" href="<?=h(tasks_view_url($groupId, 'owner', $mine, $showDone, $search))?>">By Owner</a>
   </div>
   <a class="chip <?=$mine?'active':''?>" href="<?=h(tasks_view_url($groupId, $view, !$mine, $showDone, $search))?>">Only my tasks</a>
   <a class="chip <?=$showDone?'active':''?>" href="<?=h(tasks_view_url($groupId, $view, $mine, !$showDone, $search))?>">Show completed</a>
@@ -189,7 +249,7 @@ header_html($group['name']);
     <div class="board-group" style="--group-color: <?=h($color)?>">
       <h3 class="board-group-title"><?=h($section['label'])?> <span class="count"><?=count($section['tasks'])?> task<?=count($section['tasks'])===1?'':'s'?></span></h3>
       <div class="board-card">
-        <?php tasks_table($section['tasks'], $today, $view !== 'category', $isGroupAdmin); ?>
+        <?php tasks_table($section['tasks'], $today, $isGroupAdmin, $remindersByTask, $lastSentByTask); ?>
       </div>
     </div>
   <?php endforeach; ?>
@@ -208,9 +268,10 @@ header_html($group['name']);
     <div class="email-compose-field"><span class="email-compose-label">From</span><span id="em-from"></span></div>
     <div class="email-compose-field"><div contenteditable="true" id="em-subject" class="email-compose-subject" aria-label="Subject"></div></div>
     <div contenteditable="true" id="em-body" class="email-compose-body" aria-label="Email body"></div>
-    <p class="email-compose-hint small">Blue tags are <strong>variables</strong>, shown with today's values — each email
-      re-fills them at the moment it is sent, so they stay up to date when the task changes (hover a tag to see which
-      variable it is). Everything else is sent as written. Type <code>[task_due_date]</code>-style brackets to add one.</p>
+    <p class="email-compose-hint small">Text shown in <strong class="hint-blue">blue</strong> is filled in automatically
+      by the site — each email re-fills it at the moment it is sent, so it stays up to date when the task changes (hover
+      blue text to see which detail it is). Everything else is sent as written. Type <code>[task_due_date]</code>-style
+      brackets to add another automatic value.</p>
     <div class="email-compose-footer">
       <button type="button" class="email-send-btn" id="em-save">Save for scheduled send</button>
       <button type="button" class="button email-reset-btn hidden" id="em-reset">Reset to template</button>

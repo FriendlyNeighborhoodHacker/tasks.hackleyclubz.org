@@ -50,7 +50,7 @@ Task Comments:
 
 The user should have a default group (the last group the user was in).
 
-If the user is the owner or an admin of the group, the homepage should show a list of tasks by week due with an alternate view by category. And also a toggle to see only my tasks. (similar to the homepage of familyoffice.brianrosenthal.org)
+If the user is the owner or an admin of the group, the homepage should show a list of tasks by week due with an alternate view by owner (assignee). And also a toggle to see only my tasks. (similar to the homepage of familyoffice.brianrosenthal.org) Completed tasks are styled green, and clicking a completed task's status pill offers to mark it incomplete again. Group owners/admins additionally see email columns: when each task's reminder email will send (editable — an admin can set an exact date & time, which replaces that task's days-in-advance reminders), whether it has already been sent, and the email preview button.
 If the user is not the owner or admin of the group, the homepage should show a list of tasks assigned to the logged in user with a toggle to see all tasks in the group.
 
 ## Main menu title: "Tasks"

@@ -175,6 +175,7 @@ CREATE TABLE tasks (
   created_by_user_id INT DEFAULT NULL,
   custom_email_subject VARCHAR(255) DEFAULT NULL COMMENT 'Owner-edited scheduled reminder email; NULL = use group template',
   custom_email_body TEXT DEFAULT NULL,
+  custom_email_send_at DATETIME DEFAULT NULL COMMENT 'Admin-set reminder send time; NULL = automatic schedule',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_tasks_group FOREIGN KEY (group_id) REFERENCES task_groups(id) ON DELETE CASCADE,

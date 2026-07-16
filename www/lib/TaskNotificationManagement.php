@@ -107,12 +107,25 @@ class TaskNotificationManagement {
             $daysUntil = self::daysBetween($today, (string)$t['due_date']);
 
             // Which bucket, if any, does this task land in today? A reminder
-            // row puts the task in "upcoming" exactly on its trigger day.
+            // row puts the task in "upcoming" exactly on its trigger day. An
+            // admin-set send time (custom_email_send_at) REPLACES the
+            // days-in-advance reminders: it fires on its date instead.
             $reminderHit = null;
-            foreach ($remindersByTask[$tid] ?? [] as $days) {
-                if ($daysUntil === $days && $days > 0) {
-                    $reminderHit = $days;
-                    break;
+            $customSendAt = (string)($t['custom_email_send_at'] ?? '');
+            if ($customSendAt !== '') {
+                if (substr($customSendAt, 0, 10) === $today) {
+                    $reminderHit = null; // recorded with days_in_advance = NULL
+                    $customHit = true;
+                } else {
+                    $customHit = false;
+                }
+            } else {
+                $customHit = false;
+                foreach ($remindersByTask[$tid] ?? [] as $days) {
+                    if ($daysUntil === $days && $days > 0) {
+                        $reminderHit = $days;
+                        break;
+                    }
                 }
             }
 
@@ -121,7 +134,7 @@ class TaskNotificationManagement {
                 $bucket = 'overdue';
             } elseif ($daysUntil === 0) {
                 $bucket = 'due_today';
-            } elseif ($reminderHit !== null) {
+            } elseif ($reminderHit !== null || $customHit) {
                 $bucket = 'upcoming';
             }
             if ($bucket === null) continue;
@@ -430,6 +443,66 @@ class TaskNotificationManagement {
             // Logging must never break the task save.
         }
         return $ok;
+    }
+
+    // ===== Schedule display helpers (task list UI) =====
+
+    // Daily runner send time, for display ('HH:MM', see the cron in
+    // bin/send_daily_notifications.php; configurable via settings).
+    public static function sendTime(): string {
+        return (string)Settings::get('notification_send_time', '07:00');
+    }
+
+    /**
+     * When will this task's next reminder email go out?
+     * Returns null for done tasks / tasks that will never trigger, else
+     * ['at' => 'Y-m-d H:i:s', 'is_custom' => bool, 'daily' => bool] —
+     * 'daily' means it re-sends every day while overdue.
+     */
+    public static function nextScheduledSend(array $task, array $reminderDays, string $today): ?array {
+        if (!empty($task['is_done'])) return null;
+
+        $customSendAt = (string)($task['custom_email_send_at'] ?? '');
+        if ($customSendAt !== '') {
+            return ['at' => $customSendAt, 'is_custom' => true, 'daily' => false];
+        }
+
+        $due = (string)($task['due_date'] ?? '');
+        if ($due === '') return null;
+
+        $sendTime = self::sendTime() . ':00';
+        $daysUntil = self::daysBetween($today, $due);
+        if ($daysUntil <= 0) {
+            // Due today sends today; overdue re-sends daily until done.
+            return ['at' => $today . ' ' . $sendTime, 'is_custom' => false, 'daily' => $daysUntil < 0];
+        }
+
+        // Earliest upcoming trigger: any "N days in advance" date from today
+        // on, else the due date itself.
+        $candidates = [$due];
+        foreach ($reminderDays as $days) {
+            $date = date('Y-m-d', strtotime($due . ' -' . (int)$days . ' days'));
+            if ($date >= $today) $candidates[] = $date;
+        }
+        return ['at' => min($candidates) . ' ' . $sendTime, 'is_custom' => false, 'daily' => false];
+    }
+
+    // Last successfully sent reminder-type email per task: [task_id => sent_at]
+    public static function lastReminderSentByTask(array $taskIds): array {
+        if (!$taskIds) return [];
+        $in = implode(',', array_fill(0, count($taskIds), '?'));
+        $st = self::pdo()->prepare(
+            "SELECT task_id, MAX(sent_at) AS last_sent FROM notification_log
+             WHERE task_id IN ($in) AND delivery_status = 'sent'
+               AND notification_type IN ('reminder','due_today','overdue')
+             GROUP BY task_id"
+        );
+        $st->execute(array_map('intval', $taskIds));
+        $out = [];
+        foreach ($st->fetchAll() as $row) {
+            $out[(int)$row['task_id']] = (string)$row['last_sent'];
+        }
+        return $out;
     }
 
     // ===== Notification log =====

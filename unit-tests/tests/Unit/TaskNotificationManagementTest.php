@@ -297,6 +297,65 @@ final class TaskNotificationManagementTest extends TestCase
         $this->assertSame(0, $second['emails_sent']);
     }
 
+    // --- admin-set send time ---
+
+    public function testCustomSendDateReplacesAdvanceReminders(): void
+    {
+        $id = $this->createTask('Rescheduled email', '2026-07-30', $this->assigneeId, [7]);
+        pdo()->prepare('UPDATE tasks SET custom_email_send_at=? WHERE id=?')
+            ->execute(['2026-07-20 09:30:00', $id]);
+
+        // The default 7-days-in-advance reminder (Jul 23) no longer fires...
+        $stats = TaskNotificationManagement::runDailyNotifications('2026-07-23', $this->fakeSender());
+        $this->assertSame(0, $stats['emails_sent']);
+
+        // ...the admin-chosen date does.
+        $stats = TaskNotificationManagement::runDailyNotifications('2026-07-20', $this->fakeSender());
+        $this->assertSame(1, $stats['emails_sent']);
+        $this->assertStringContainsString('Rescheduled email', $this->sentEmails[0]['html']);
+
+        // Due-today still applies regardless of the custom date.
+        $stats = TaskNotificationManagement::runDailyNotifications('2026-07-30', $this->fakeSender());
+        $this->assertSame(1, $stats['emails_sent']);
+    }
+
+    public function testNextScheduledSendComputation(): void
+    {
+        $task = ['is_done' => 0, 'due_date' => '2026-07-30', 'custom_email_send_at' => null];
+
+        // Earliest of (due - reminder days >= today) and the due date itself
+        $next = TaskNotificationManagement::nextScheduledSend($task, [7, 3], '2026-07-15');
+        $this->assertSame('2026-07-23', substr($next['at'], 0, 10));
+        $this->assertFalse($next['is_custom']);
+        $this->assertFalse($next['daily']);
+
+        // Admin-set time wins
+        $task['custom_email_send_at'] = '2026-07-20 09:30:00';
+        $next = TaskNotificationManagement::nextScheduledSend($task, [7], '2026-07-15');
+        $this->assertSame('2026-07-20 09:30:00', $next['at']);
+        $this->assertTrue($next['is_custom']);
+
+        // Overdue: daily
+        $task['custom_email_send_at'] = null;
+        $next = TaskNotificationManagement::nextScheduledSend($task, [], '2026-08-05');
+        $this->assertTrue($next['daily']);
+        $this->assertSame('2026-08-05', substr($next['at'], 0, 10));
+
+        // Done or no due date: nothing scheduled
+        $this->assertNull(TaskNotificationManagement::nextScheduledSend(['is_done' => 1, 'due_date' => '2026-07-30'], [], '2026-07-15'));
+        $this->assertNull(TaskNotificationManagement::nextScheduledSend(['is_done' => 0, 'due_date' => null], [], '2026-07-15'));
+    }
+
+    public function testLastReminderSentByTask(): void
+    {
+        $id = $this->createTask('Tracked task', '2026-07-15', $this->assigneeId);
+        $this->assertSame([], TaskNotificationManagement::lastReminderSentByTask([$id]));
+
+        TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+        $sent = TaskNotificationManagement::lastReminderSentByTask([$id]);
+        $this->assertArrayHasKey($id, $sent);
+    }
+
     // --- assignment emails ---
 
     public function testAssignmentEmailUsesTemplateAndLogs(): void

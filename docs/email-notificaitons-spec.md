@@ -122,6 +122,19 @@ cross-group digest). Trigger rules, recipient rules, and notification_log
 dedup are unchanged; `assignment` is a new notification_type logged without
 dedup (each reassignment notifies).
 
+## Admin-set send time
+
+The task list's "Email sends" column shows when each task's next reminder
+email goes out (automatic schedule: earliest of its days-in-advance reminder
+dates, then the due date, then daily at the configured send time while
+overdue; display time comes from the `notification_send_time` setting,
+default 07:00). Group owners/admins can click it and set an exact date & time
+(`tasks.custom_email_send_at`), which REPLACES the task's days-in-advance
+reminders — the runner sends the reminder on that date instead. Due-today and
+overdue reminders still apply. Clearing the field returns the task to the
+automatic schedule. The "Sent" column shows whether a reminder email for the
+task has already gone out (latest sent row in notification_log).
+
 ## Per-task email override
 
 On the group task list, the group owner/admins have an "Email preview" button

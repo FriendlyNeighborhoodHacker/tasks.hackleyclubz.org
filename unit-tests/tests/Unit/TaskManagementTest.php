@@ -310,4 +310,21 @@ final class TaskManagementTest extends TestCase
 
         $this->assertSame(['alpha', 'Zeta', 'Uncategorized', 'Completed'], $labels);
     }
+
+    public function testGroupTasksByOwner(): void
+    {
+        $tasks = [
+            ['id' => 1, 'title' => 'B', 'assignee_first_name' => 'Zoe', 'assignee_last_name' => 'Young', 'is_done' => 0],
+            ['id' => 2, 'title' => 'A', 'assignee_first_name' => 'ada', 'assignee_last_name' => 'Byron', 'is_done' => 0],
+            ['id' => 3, 'title' => 'C', 'assignee_first_name' => null, 'assignee_last_name' => null, 'is_done' => 0],
+            ['id' => 4, 'title' => 'E', 'assignee_first_name' => 'Zoe', 'assignee_last_name' => 'Young', 'is_done' => 0],
+            ['id' => 5, 'title' => 'D', 'assignee_first_name' => 'ada', 'assignee_last_name' => 'Byron', 'is_done' => 1, 'completion_date' => '2026-07-10'],
+        ];
+
+        $groups = TaskManagement::groupTasksByOwner($tasks);
+        $labels = array_column($groups, 'label');
+
+        $this->assertSame(['ada Byron', 'Zoe Young', 'Unassigned', 'Completed'], $labels);
+        $this->assertCount(2, $groups[1]['tasks']);
+    }
 }

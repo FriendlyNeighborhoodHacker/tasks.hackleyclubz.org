@@ -411,6 +411,19 @@ class TaskManagement {
         return $st->fetchAll();
     }
 
+    // Days-in-advance lists for many tasks at once: [task_id => [days, ...]]
+    public static function remindersByTask(array $taskIds): array {
+        if (!$taskIds) return [];
+        $in = implode(',', array_fill(0, count($taskIds), '?'));
+        $st = self::pdo()->prepare("SELECT task_id, days_in_advance FROM task_reminders WHERE task_id IN ($in) ORDER BY days_in_advance");
+        $st->execute(array_map('intval', $taskIds));
+        $out = [];
+        foreach ($st->fetchAll() as $row) {
+            $out[(int)$row['task_id']][] = (int)$row['days_in_advance'];
+        }
+        return $out;
+    }
+
     // ===== Pure grouping helpers for the index views (no DB access) =====
 
     // Buckets open tasks by the Monday of their due week. Returns an ordered
@@ -500,6 +513,40 @@ class TaskManagement {
             $groups[] = ['label' => 'Uncategorized', 'tasks' => $uncategorized];
         }
         if ($done) {
+            $groups[] = ['label' => 'Completed', 'tasks' => $done];
+        }
+        return $groups;
+    }
+
+    // Buckets tasks by assignee, alphabetical with "Unassigned" last (and
+    // "Completed" after that when done tasks are included).
+    public static function groupTasksByOwner(array $tasks): array {
+        $byOwner = [];
+        $unassigned = [];
+        $done = [];
+
+        foreach ($tasks as $t) {
+            $name = trim(($t['assignee_first_name'] ?? '') . ' ' . ($t['assignee_last_name'] ?? ''));
+            if (!empty($t['is_done'])) {
+                $done[] = $t;
+            } elseif ($name !== '') {
+                $byOwner[$name][] = $t;
+            } else {
+                $unassigned[] = $t;
+            }
+        }
+
+        uksort($byOwner, 'strnatcasecmp');
+
+        $groups = [];
+        foreach ($byOwner as $name => $rows) {
+            $groups[] = ['label' => $name, 'tasks' => $rows];
+        }
+        if ($unassigned) {
+            $groups[] = ['label' => 'Unassigned', 'tasks' => $unassigned];
+        }
+        if ($done) {
+            usort($done, fn($a, $b) => strcmp((string)($b['completion_date'] ?? ''), (string)($a['completion_date'] ?? '')));
             $groups[] = ['label' => 'Completed', 'tasks' => $done];
         }
         return $groups;
