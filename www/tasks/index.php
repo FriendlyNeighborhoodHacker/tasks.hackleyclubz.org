@@ -107,34 +107,36 @@ function board_status_html(array $t, string $today): string {
     return '<span class="pill pill-later">Due ' . h($dateLabel) . '</span>';
 }
 
-// "Email sends" cell: the date the task's next reminder email goes out (the
-// daily runner's cron decides the time of day). Group admins can click it to
-// pick a date (or clear back to the automatic schedule).
-function board_schedule_html(array $t, string $today, array $reminderDays, bool $isGroupAdmin): string {
-    $sched = TaskNotificationManagement::nextScheduledSend($t, $reminderDays, $today);
+// "Email sends" cell: mirrors what is stored — the task's reminder days
+// ("7, 1 days before", from task_reminders) or an admin-set exact date
+// (custom_email_send_at). Group admins can click it to pick an exact date
+// (or clear back to the days-before reminders).
+function board_schedule_html(array $t, array $reminderDays, bool $isGroupAdmin): string {
+    if (!empty($t['is_done'])) return '<span class="small">—</span>';
 
-    if ($sched === null) {
-        $label = '<span class="small">' . (empty($t['is_done']) ? 'No due date — not scheduled' : '—') . '</span>';
-        if (!empty($t['is_done'])) return $label;
+    $custom = (string)($t['custom_email_send_at'] ?? '');
+    if ($custom !== '') {
+        $label = '<span class="sched-when custom">' . h(date('M j', strtotime($custom)))
+            . ' <span class="sched-custom-badge">custom</span></span>';
+    } elseif ($reminderDays) {
+        $plural = (count($reminderDays) === 1 && (int)$reminderDays[0] === 1) ? 'day' : 'days';
+        $label = '<span class="sched-when">' . h(implode(', ', $reminderDays)) . ' ' . $plural . ' before</span>'
+            . (empty($t['due_date']) ? ' <span class="small">(no due date)</span>' : '');
     } else {
-        $label = '<span class="sched-when' . ($sched['is_custom'] ? ' custom' : '') . '">'
-            . ($sched['daily'] ? 'Daily <span class="small">(overdue)</span>'
-                               : h(date('M j', strtotime($sched['date']))))
-            . ($sched['is_custom'] ? ' <span class="sched-custom-badge">custom</span>' : '')
-            . '</span>';
+        $label = '<span class="small">None</span>';
     }
 
     if (!$isGroupAdmin) return $label;
 
-    $value = ($sched && $sched['is_custom']) ? $sched['date'] : '';
+    $value = $custom !== '' ? substr($custom, 0, 10) : '';
     return '<details class="sched-edit"><summary>' . $label . '</summary>'
         . '<form method="post" action="/tasks/schedule_eval.php" class="sched-form">'
         . '<input type="hidden" name="csrf" value="' . h(csrf_token()) . '">'
         . '<input type="hidden" name="task_id" value="' . (int)$t['id'] . '">'
         . '<input type="hidden" name="return" value="' . h($_SERVER['REQUEST_URI'] ?? '/tasks/index.php') . '">'
         . '<input type="date" name="send_at" value="' . h($value) . '">'
-        . '<button class="button primary" type="submit">Set</button>'
-        . ($value !== '' ? '<button class="button" type="submit" name="send_at" value="">Auto</button>' : '')
+        . '<button class="button primary" type="submit">Set date</button>'
+        . ($value !== '' ? '<button class="button" type="submit" name="send_at" value="">Use days</button>' : '')
         . '</form></details>';
 }
 
@@ -155,7 +157,7 @@ function tasks_table(array $rows, string $today, bool $isGroupAdmin, array $remi
         <th class="col-assignee">Owner</th>
         <th class="col-due">Status</th>
         <?php if ($isGroupAdmin): ?>
-        <th class="col-sched">Email sends</th>
+        <th class="col-sched">Email sends **</th>
         <th class="col-sent">Sent</th>
         <th class="col-email">Email</th>
         <?php endif; ?>
@@ -168,7 +170,7 @@ function tasks_table(array $rows, string $today, bool $isGroupAdmin, array $remi
           <td><?=board_assignee_html($t)?></td>
           <td><?=board_status_html($t, $today)?></td>
           <?php if ($isGroupAdmin): ?>
-          <td><?=board_schedule_html($t, $today, $remindersByTask[$tid] ?? [], true)?></td>
+          <td><?=board_schedule_html($t, $remindersByTask[$tid] ?? [], true)?></td>
           <td><?=board_sent_html($t, $lastSentByTask)?></td>
           <td>
             <?php if (empty($t['is_done'])): ?>
@@ -220,6 +222,10 @@ header_html($group['name']);
     <input type="search" class="board-search" name="q" value="<?=h($search)?>" placeholder="Search tasks…">
   </form>
 </div>
+
+<?php if ($isGroupAdmin): ?>
+<p class="sched-note small">** All scheduled emails send at 7:00 AM on their scheduled day.</p>
+<?php endif; ?>
 
 <?php if (!$groups): ?>
   <div class="card">

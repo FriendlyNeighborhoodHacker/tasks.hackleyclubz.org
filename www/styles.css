@@ -415,6 +415,12 @@ button.pill-btn:hover {
 
 .board-table .col-email { width: 130px; }
 
+/* Footnote under the toolbar: when scheduled emails actually go out */
+.sched-note {
+  margin: -8px 0 14px;
+  color: var(--color-text-muted);
+}
+
 /* "Email sends" column: next scheduled send; admins expand to edit */
 .sched-when {
   font-size: 12.5px;
