@@ -208,7 +208,7 @@ header_html($group['name']);
     <div class="email-compose-field"><span class="email-compose-label">From</span><span id="em-from"></span></div>
     <div class="email-compose-field"><div contenteditable="true" id="em-subject" class="email-compose-subject" aria-label="Subject"></div></div>
     <div contenteditable="true" id="em-body" class="email-compose-body" aria-label="Email body"></div>
-    <p class="email-compose-hint small">Pink tags are <strong>variables</strong>, shown with today's values — each email
+    <p class="email-compose-hint small">Blue tags are <strong>variables</strong>, shown with today's values — each email
       re-fills them at the moment it is sent, so they stay up to date when the task changes (hover a tag to see which
       variable it is). Everything else is sent as written. Type <code>[task_due_date]</code>-style brackets to add one.</p>
     <div class="email-compose-footer">
@@ -238,7 +238,7 @@ header_html($group['name']);
     return d.innerHTML;
   }
 
-  // Known [tokens] become pink variable pills showing the task's CURRENT
+  // Known [tokens] become blue variable pills showing the task's CURRENT
   // value (the tooltip names the variable); anything else, bracketed or not,
   // is literal text. data-token is what gets saved, so it stays a variable.
   function highlightTokens(text) {

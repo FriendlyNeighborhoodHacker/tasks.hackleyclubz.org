@@ -498,12 +498,12 @@ h1, h2, h3, .page-title {
   outline: none;
 }
 
-/* Variables stay [tokens] until send time; shown as light pink tags */
+/* Variables stay [tokens] until send time; shown as light blue tags */
 .token-pill {
   display: inline-block;
-  background: #fde2ef;
-  color: #b0327a;
-  border: 1px solid #f8c6de;
+  background: #dcecfd;
+  color: #1567c4;
+  border: 1px solid #b7d9f9;
   border-radius: 4px;
   padding: 0 5px;
   margin: 0 1px;
@@ -522,8 +522,8 @@ h1, h2, h3, .page-title {
 }
 
 .email-compose-hint code {
-  background: #fde2ef;
-  color: #b0327a;
+  background: #dcecfd;
+  color: #1567c4;
   border-radius: 3px;
   padding: 0 3px;
 }
