@@ -1,7 +1,7 @@
 <?php
 // Saves a task's reminder schedule (POST from the inline editor on
-// tasks/view.php): a comma-separated list of "days before the due date".
-// Group owner / group admins only.
+// tasks/view.php): reminder_days[] rows of "days before the due date" — a
+// task may have any number of reminders. Group owner / group admins only.
 require_once __DIR__ . '/../partials.php';
 require_once __DIR__ . '/../lib/GroupManagement.php';
 require_once __DIR__ . '/../lib/TaskManagement.php';
@@ -26,12 +26,13 @@ try {
         throw new RuntimeException('Only the group owner or a group admin can edit the reminders.');
     }
 
-    // "7, 1" -> [7, 1]; blank input clears all reminders.
+    // One entry per row; removing every row clears the reminders.
     $days = [];
-    foreach (preg_split('/[,\s]+/', trim((string)($_POST['days'] ?? ''))) as $part) {
+    foreach ((array)($_POST['reminder_days'] ?? []) as $part) {
+        $part = trim((string)$part);
         if ($part === '') continue;
         if (!ctype_digit($part)) {
-            throw new InvalidArgumentException('Reminders must be whole numbers of days, e.g. "7, 1".');
+            throw new InvalidArgumentException('Reminders must be whole numbers of days.');
         }
         $days[] = (int)$part;
     }

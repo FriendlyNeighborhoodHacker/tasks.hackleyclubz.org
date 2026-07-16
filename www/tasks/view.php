@@ -105,19 +105,40 @@ header_html($task['title']);
     <form method="post" action="/tasks/reminders_eval.php" class="reminders-form hidden" id="remindersForm">
       <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
       <input type="hidden" name="task_id" value="<?=$taskId?>">
-      <input type="text" name="days" value="<?=h(implode(', ', array_map(fn($r) => (string)$r['days_in_advance'], $reminders)))?>" placeholder="e.g. 7, 1" title="Days before the due date, comma-separated">
-      <button class="button primary" type="submit">Save</button>
-      <div class="small">days before the due date — blank for none</div>
+      <div id="viewReminderRows">
+        <?php foreach ($reminders as $r): ?>
+          <div class="reminder-row">
+            <input type="number" name="reminder_days[]" min="0" step="1" value="<?=h((string)$r['days_in_advance'])?>"> days before
+            <button type="button" class="button remove-reminder">Remove</button>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <div class="reminder-actions">
+        <button type="button" class="button" id="viewAddReminder">+ Add reminder</button>
+        <button class="button primary" type="submit">Save</button>
+      </div>
     </form>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
       var btn = document.getElementById('remindersEditBtn');
+      var form = document.getElementById('remindersForm');
       btn.addEventListener('click', function () {
-        var form = document.getElementById('remindersForm');
         var formHidden = form.classList.toggle('hidden');
         document.getElementById('remindersText').classList.toggle('hidden', !formHidden);
         btn.textContent = formHidden ? 'Edit' : 'Cancel';
-        if (!formHidden) form.querySelector('input[name="days"]').focus();
+      });
+      document.getElementById('viewAddReminder').addEventListener('click', function () {
+        var div = document.createElement('div');
+        div.className = 'reminder-row';
+        div.innerHTML = '<input type="number" name="reminder_days[]" min="0" step="1" value="1"> days before ' +
+                        '<button type="button" class="button remove-reminder">Remove</button>';
+        document.getElementById('viewReminderRows').appendChild(div);
+        div.querySelector('input').focus();
+      });
+      form.addEventListener('click', function (e) {
+        if (e.target && e.target.classList.contains('remove-reminder')) {
+          e.target.closest('.reminder-row').remove();
+        }
       });
     });
     </script>

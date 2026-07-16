@@ -555,8 +555,13 @@ button.pill-btn:hover {
   margin-top: 2px;
 }
 
-.reminders-form input[name="days"] {
-  width: 90px;
+.reminders-form {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.reminders-form input[type="number"] {
+  width: 70px;
   padding: 4px 8px;
   font-size: 13px;
   border-radius: 6px;
@@ -568,8 +573,15 @@ button.pill-btn:hover {
   border-radius: 6px;
 }
 
-.reminders-form .small {
-  flex-basis: 100%;
+.reminders-form .reminder-row {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.reminder-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
 }
 
 .task-instructions p {
