@@ -11,9 +11,6 @@ define('DB_PASS', '');
 // Application branding (used as a fallback; UI will prefer Settings::get('site_title', APP_NAME))
 define('APP_NAME', 'Tasks');
 
-// Optional super password (for temporary testing). Leave blank to disable.
-define('SUPER_PASSWORD', 'super'); // REMOVE/DISABLE IN PRODUCTION
-
 // SMTP configuration (e.g., Gmail with App Password)
 define('SMTP_HOST', 'smtp.gmail.com'); // smtp.gmail.com
 define('SMTP_PORT', 587);              // 587 for STARTTLS, 465 for SSL
