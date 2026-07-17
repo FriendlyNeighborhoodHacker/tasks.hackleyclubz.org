@@ -99,19 +99,33 @@ function send_smtp_mail(string $toEmail, string $toName, string $subject, string
  * Enhanced version that returns detailed error information.
  * Returns array with 'success' (bool) and 'error' (string|null) keys.
  */
-function send_email_with_error(string $toEmail, string $subject, string $html, string $toName = '', string &$errorMessage = ''): bool {
+function send_email_with_error(string $toEmail, string $subject, string $html, string $toName = '', string &$errorMessage = '', ?array $smtp = null): bool {
   if ($toName === '') $toName = $toEmail;
 
-  if (!defined('SMTP_HOST') || !defined('SMTP_PORT') || !defined('SMTP_USER') || !defined('SMTP_PASS')) {
-    $errorMessage = 'SMTP configuration missing (SMTP_HOST, SMTP_PORT, SMTP_USER, or SMTP_PASS not defined)';
-    return false;
-  }
+  if ($smtp !== null) {
+    // Per-group override (see lib/GroupSmtpSettings.php):
+    // ['host','port','username','password','secure','from_email','from_name']
+    $host = (string)$smtp['host'];
+    $port = (int)$smtp['port'];
+    $user = (string)$smtp['username'];
+    $pass = (string)$smtp['password'];
+    $secure = strtolower((string)($smtp['secure'] ?? 'tls'));
+    $fromEmail = ($smtp['from_email'] ?? '') !== '' ? (string)$smtp['from_email'] : $user;
+    $fromName  = ($smtp['from_name'] ?? '') !== '' ? (string)$smtp['from_name'] : 'Tasks';
+  } else {
+    if (!defined('SMTP_HOST') || !defined('SMTP_PORT') || !defined('SMTP_USER') || !defined('SMTP_PASS')) {
+      $errorMessage = 'SMTP configuration missing (SMTP_HOST, SMTP_PORT, SMTP_USER, or SMTP_PASS not defined)';
+      return false;
+    }
 
-  $host = SMTP_HOST;
-  $port = (int)SMTP_PORT;
-  $secure = defined('SMTP_SECURE') ? strtolower(SMTP_SECURE) : 'tls';
-  $fromEmail = defined('SMTP_FROM_EMAIL') && SMTP_FROM_EMAIL ? SMTP_FROM_EMAIL : SMTP_USER;
-  $fromName  = defined('SMTP_FROM_NAME') ? SMTP_FROM_NAME : 'Tasks';
+    $host = SMTP_HOST;
+    $port = (int)SMTP_PORT;
+    $user = SMTP_USER;
+    $pass = SMTP_PASS;
+    $secure = defined('SMTP_SECURE') ? strtolower(SMTP_SECURE) : 'tls';
+    $fromEmail = defined('SMTP_FROM_EMAIL') && SMTP_FROM_EMAIL ? SMTP_FROM_EMAIL : SMTP_USER;
+    $fromName  = defined('SMTP_FROM_NAME') ? SMTP_FROM_NAME : 'Tasks';
+  }
 
   $timeout = 20;
   $transport = ($secure === 'ssl') ? "ssl://$host" : $host;
@@ -200,8 +214,8 @@ function send_email_with_error(string $toEmail, string $subject, string $html, s
     $errorMessage = "AUTH LOGIN failed: $lastResponse";
     return false;
   }
-  if (!$send(base64_encode(SMTP_USER))) { 
-    fclose($fp); 
+  if (!$send(base64_encode($user))) {
+    fclose($fp);
     $errorMessage = "Failed to send username";
     return false;
   }
@@ -210,8 +224,8 @@ function send_email_with_error(string $toEmail, string $subject, string $html, s
     $errorMessage = "Username authentication failed: $lastResponse";
     return false;
   }
-  if (!$send(base64_encode(SMTP_PASS))) { 
-    fclose($fp); 
+  if (!$send(base64_encode($pass))) {
+    fclose($fp);
     $errorMessage = "Failed to send password";
     return false;
   }
@@ -286,13 +300,15 @@ function send_email_with_error(string $toEmail, string $subject, string $html, s
 }
 
 /**
- * Convenience wrapper with logging. Returns true/false.
+ * Convenience wrapper with logging. Returns true/false. Pass $smtp (see
+ * GroupSmtpSettings::getForSending) to send through a group's own SMTP
+ * server instead of the global config.
  */
-function send_email(string $to, string $subject, string $html, string $toName = ''): bool {
+function send_email(string $to, string $subject, string $html, string $toName = '', ?array $smtp = null): bool {
   if ($toName === '') $toName = $to;
-  
+
   $errorMessage = '';
-  $success = send_email_with_error($to, $subject, $html, $toName, $errorMessage);
+  $success = send_email_with_error($to, $subject, $html, $toName, $errorMessage, $smtp);
   
   // Log the email attempt
   $ctx = UserContext::getLoggedInUserContext();

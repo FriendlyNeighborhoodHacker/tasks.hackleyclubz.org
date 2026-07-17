@@ -391,4 +391,68 @@ final class TaskNotificationManagementTest extends TestCase
 
         $this->assertCount(0, $this->sentEmails);
     }
+
+    // --- per-group SMTP overrides ---
+
+    public function testGroupSmtpOverrideIsPassedToSender(): void
+    {
+        GroupSmtpSettings::save($this->ownerCtx, $this->groupId, [
+            'smtp_host' => 'smtp.gmail.com',
+            'smtp_port' => '587',
+            'smtp_username' => 'club@gmail.com',
+            'smtp_password' => 'app-password',
+            'smtp_secure' => 'tls',
+            'from_email' => '',
+            'from_name' => '',
+        ]);
+
+        // A second group without an override.
+        $plainGroup = GroupManagement::createGroup($this->ownerCtx, ['name' => 'Plain Group']);
+        GroupManagement::addMember($this->ownerCtx, $plainGroup, $this->assigneeId, 'member');
+
+        $this->createTask('Overridden group task', '2026-07-15', $this->assigneeId);
+        TaskManagement::createTask($this->ownerCtx, $plainGroup, [
+            'title' => 'Plain group task',
+            'due_date' => '2026-07-15',
+            'assigned_to_user_id' => $this->assigneeId,
+        ]);
+
+        $smtpBySubject = [];
+        $sender = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null) use (&$smtpBySubject): bool {
+            $smtpBySubject[$subject] = $smtp;
+            return true;
+        };
+
+        $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $sender);
+        $this->assertSame(2, $stats['emails_sent']);
+
+        $this->assertSame('smtp.gmail.com', $smtpBySubject['Reminder: Overridden group task is due on July 15, 2026']['host'] ?? null);
+        $this->assertSame('club@gmail.com', $smtpBySubject['Reminder: Overridden group task is due on July 15, 2026']['from_email'] ?? null);
+        $this->assertNull($smtpBySubject['Reminder: Plain group task is due on July 15, 2026']);
+    }
+
+    public function testAssignmentEmailUsesGroupSmtpOverride(): void
+    {
+        GroupSmtpSettings::save($this->ownerCtx, $this->groupId, [
+            'smtp_host' => 'smtp.gmail.com',
+            'smtp_port' => '465',
+            'smtp_username' => 'club@gmail.com',
+            'smtp_password' => 'app-password',
+            'smtp_secure' => 'ssl',
+            'from_email' => '',
+            'from_name' => '',
+        ]);
+
+        $received = null;
+        $sender = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null) use (&$received): bool {
+            $received = $smtp;
+            return true;
+        };
+
+        $taskId = $this->createTask('Bake cookies', '2026-07-22', $this->assigneeId);
+        $this->assertTrue(TaskNotificationManagement::sendAssignmentEmail($taskId, $this->ownerCtx, $sender));
+        $this->assertSame('smtp.gmail.com', $received['host'] ?? null);
+        $this->assertSame('ssl', $received['secure'] ?? null);
+        $this->assertSame('Club Board', $received['from_name'] ?? null);
+    }
 }

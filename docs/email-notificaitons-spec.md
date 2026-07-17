@@ -151,6 +151,25 @@ A task with a saved custom email is sent as its own email (tokens render at
 send time, and a view/complete link is appended); the group's single/multi
 templates then apply only to the remaining tasks.
 
+## Per-group SMTP override (added 2026-07-16)
+
+By default all email goes out through the site-wide SMTP_* constants in
+`config.local.php`. A group can override this on its settings page ("Email
+Sending (SMTP)" card, group owner / group admins) so its emails come from the
+group's own address — typically Gmail (`smtp.gmail.com`, port 587 + `tls` or
+465 + `ssl`, with a Google app password). Stored in `group_smtp_overrides`
+(one row per group, managed by `lib/GroupSmtpSettings.php`); a row exists only
+while a group has an override, and removing it restores the site default.
+`from_email` falls back to the SMTP username, `from_name` to the group name.
+
+The override applies to the group-scoped emails only — assignment emails and
+scheduled reminders (`lib/TaskNotificationManagement.php` resolves it per group
+and passes it to `send_email()`). Account-level emails (verification, password
+reset, admin mail test) always use the site-wide config. The settings card has
+a "Send Test Email to Me" button that sends through the saved override. The
+stored password is never rendered back into the form; leaving the password
+field blank on save keeps the existing one.
+
 ---
 
 # Email Format

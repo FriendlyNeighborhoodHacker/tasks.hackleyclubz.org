@@ -45,7 +45,7 @@ function test_reset_all(): void {
     foreach ([
         'activity_log', 'emails_sent', 'notification_log',
         'task_access_tokens', 'task_comments', 'task_reminders', 'tasks',
-        'group_email_templates', 'group_members', 'task_groups',
+        'group_email_templates', 'group_smtp_overrides', 'group_members', 'task_groups',
         'private_files', 'public_files', 'users',
     ] as $table) {
         $pdo->exec('TRUNCATE TABLE ' . $table);

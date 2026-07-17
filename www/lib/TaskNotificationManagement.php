@@ -7,6 +7,7 @@ require_once __DIR__ . '/UserContext.php';
 require_once __DIR__ . '/ActivityLog.php';
 require_once __DIR__ . '/TaskAccessTokens.php';
 require_once __DIR__ . '/EmailTemplates.php';
+require_once __DIR__ . '/GroupSmtpSettings.php';
 
 /**
  * Reminder + assignment email engine for tasks.
@@ -177,8 +178,9 @@ class TaskNotificationManagement {
     /**
      * Run the daily notification pass. Safe to run multiple times per day.
      *
-     * @param callable|null $sendEmail fn(string $to, string $toName, string $subject, string $html): bool
-     *                                 (defaults to the SMTP mailer; tests inject a fake)
+     * @param callable|null $sendEmail fn(string $to, string $toName, string $subject, string $html, ?array $smtp = null): bool
+     *                                 (defaults to the SMTP mailer; tests inject a fake — $smtp is
+     *                                 the group's SMTP override config, null for the site default)
      * @param bool $dryRun collect and report, but send nothing and record nothing
      * @param bool $ignoreThrottling re-send even if already sent (for testing)
      * @return array stats
@@ -186,8 +188,8 @@ class TaskNotificationManagement {
     public static function runDailyNotifications(string $today, ?callable $sendEmail = null, bool $dryRun = false, bool $ignoreThrottling = false): array {
         if ($sendEmail === null) {
             require_once __DIR__ . '/../mailer.php';
-            $sendEmail = function (string $to, string $toName, string $subject, string $html): bool {
-                return send_email($to, $subject, $html, $toName);
+            $sendEmail = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null): bool {
+                return send_email($to, $subject, $html, $toName, $smtp);
             };
         }
 
@@ -204,6 +206,10 @@ class TaskNotificationManagement {
         ];
         unset($digests['_stats']);
 
+        // Per-run cache of each group's SMTP override (null = site default,
+        // hence array_key_exists rather than isset).
+        $smtpByGroup = [];
+
         foreach ($digests as $rid => $digest) {
             if (empty($digest['triggers'])) continue;
             $stats['recipients_with_triggers']++;
@@ -217,10 +223,15 @@ class TaskNotificationManagement {
             // Building the emails issues the per-task access tokens, so only
             // do it for real sends.
             foreach (self::buildReminderEmails($digest) as $email) {
+                $gid = (int)$email['group_id'];
+                if (!array_key_exists($gid, $smtpByGroup)) {
+                    $smtpByGroup[$gid] = GroupSmtpSettings::getForSending($gid);
+                }
+
                 $ok = false;
                 $errorMessage = null;
                 try {
-                    $ok = (bool)$sendEmail((string)$user['email'], trim($user['first_name'] . ' ' . $user['last_name']), $email['subject'], $email['html']);
+                    $ok = (bool)$sendEmail((string)$user['email'], trim($user['first_name'] . ' ' . $user['last_name']), $email['subject'], $email['html'], $smtpByGroup[$gid]);
                 } catch (\Throwable $e) {
                     $errorMessage = $e->getMessage();
                 }
@@ -248,7 +259,7 @@ class TaskNotificationManagement {
     /**
      * The reminder emails for one recipient's digest, one per group (plus one
      * per task whose email was hand-edited in the preview modal). Each entry:
-     * ['subject' =>, 'html' =>, 'triggers' => [the covered trigger rows]].
+     * ['subject' =>, 'html' =>, 'group_id' =>, 'triggers' => [the covered trigger rows]].
      * Issues an access token per task, so only call this when really sending.
      */
     public static function buildReminderEmails(array $digest): array {
@@ -276,7 +287,7 @@ class TaskNotificationManagement {
         $emails = [];
         foreach ($byGroup as $gid => $bundle) {
             foreach ($bundle['custom'] ?? [] as $entry) {
-                $emails[] = self::buildCustomTaskEmail($entry['task'], $user) + ['triggers' => [$entry['trigger']]];
+                $emails[] = self::buildCustomTaskEmail($entry['task'], $user) + ['group_id' => $gid, 'triggers' => [$entry['trigger']]];
             }
             if (!empty($bundle['templated'])) {
                 $tasks = array_column($bundle['templated'], 'task');
@@ -284,7 +295,7 @@ class TaskNotificationManagement {
                 $email = count($tasks) === 1
                     ? self::buildSingleTaskEmail($gid, $tasks[0], $user)
                     : self::buildMultiTaskEmail($gid, $tasks, $user);
-                $emails[] = $email + ['triggers' => $triggers];
+                $emails[] = $email + ['group_id' => $gid, 'triggers' => $triggers];
             }
         }
         return $emails;
@@ -423,16 +434,18 @@ class TaskNotificationManagement {
 
         if ($sendEmail === null) {
             require_once __DIR__ . '/../mailer.php';
-            $sendEmail = function (string $to, string $toName, string $subject, string $html): bool {
-                return send_email($to, $subject, $html, $toName);
+            $sendEmail = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null): bool {
+                return send_email($to, $subject, $html, $toName, $smtp);
             };
         }
+
+        $smtp = GroupSmtpSettings::getForSending((int)$task['group_id']);
 
         $ok = false;
         $errorMessage = null;
         try {
             $toName = trim(($task['assignee_first_name'] ?? '') . ' ' . ($task['assignee_last_name'] ?? ''));
-            $ok = (bool)$sendEmail((string)$task['assignee_email'], $toName, $subject, $html);
+            $ok = (bool)$sendEmail((string)$task['assignee_email'], $toName, $subject, $html, $smtp);
         } catch (\Throwable $e) {
             $errorMessage = $e->getMessage();
         }
