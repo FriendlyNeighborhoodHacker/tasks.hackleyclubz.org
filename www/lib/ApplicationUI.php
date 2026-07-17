@@ -91,7 +91,7 @@ class ApplicationUI {
 
             if ($isAdmin) {
                 $peopleActive = $onGroupPage && strpos($script, '/groups/people') === 0;
-                $settingsActive = $onGroupPage && $script === '/groups/settings.php';
+                $settingsActive = $onGroupPage && strpos($script, '/groups/settings') === 0;
                 $html .= '<a href="/tasks/index.php?group_id=' . $gid . '" class="sidebar-item sidebar-subitem' . ($tasksActive ? ' active' : '') . '">Tasks</a>'
                        . '<a href="/groups/people.php?group_id=' . $gid . '" class="sidebar-item sidebar-subitem' . ($peopleActive ? ' active' : '') . '">People</a>'
                        . '<a href="/groups/settings.php?group_id=' . $gid . '" class="sidebar-item sidebar-subitem' . ($settingsActive ? ' active' : '') . '">Settings</a>';

@@ -16,6 +16,21 @@ function footer_html(): void {
     ApplicationUI::footerHtml();
 }
 
+// Tab navigation shared by the group settings pages (settings.php,
+// settings_templates.php, settings_smtp.php). $active: general|templates|smtp.
+function group_settings_tabs_html(int $groupId, string $active): string {
+    $tabs = [
+        'general' => ['General', '/groups/settings.php'],
+        'templates' => ['Email Templates', '/groups/settings_templates.php'],
+        'smtp' => ['Email Sending', '/groups/settings_smtp.php'],
+    ];
+    $html = '<nav class="settings-tabs">';
+    foreach ($tabs as $key => [$label, $url]) {
+        $html .= '<a href="' . h($url . '?group_id=' . $groupId) . '"' . ($key === $active ? ' class="active"' : '') . '>' . h($label) . '</a>';
+    }
+    return $html . '</nav>';
+}
+
 // Stable avatar color for a person's name (board views, comment feeds).
 function person_avatar_color(string $name): string {
     $palette = ['#579bfc', '#00c875', '#a25ddc', '#fdab3d', '#e2445c', '#0086c0', '#9d99b9', '#037f4c'];

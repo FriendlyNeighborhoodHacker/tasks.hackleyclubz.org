@@ -98,7 +98,8 @@ If an obligation applies to a child, notifications should still be sent to the r
 # Email Templates (added 2026-07-15)
 
 Reminder and assignment emails are built from three per-group templates,
-customizable on the group settings page (group owner / group admins). Defaults
+customizable on the group settings "Email Templates" tab
+(`groups/settings_templates.php`, group owner / group admins). Defaults
 live in code (`lib/EmailTemplates.php`); a `group_email_templates` row exists
 only once a group customizes a template, and deleting it restores the default.
 
@@ -154,9 +155,9 @@ templates then apply only to the remaining tasks.
 ## Per-group SMTP override (added 2026-07-16)
 
 By default all email goes out through the site-wide SMTP_* constants in
-`config.local.php`. A group can override this on its settings page ("Email
-Sending (SMTP)" card, group owner / group admins) so its emails come from the
-group's own address — typically Gmail (`smtp.gmail.com`, port 587 + `tls` or
+`config.local.php`. A group can override this on the group settings "Email
+Sending" tab (`groups/settings_smtp.php`, group owner / group admins) so its
+emails come from the group's own address — typically Gmail (`smtp.gmail.com`, port 587 + `tls` or
 465 + `ssl`, with a Google app password). Stored in `group_smtp_overrides`
 (one row per group, managed by `lib/GroupSmtpSettings.php`); a row exists only
 while a group has an override, and removing it restores the site default.
