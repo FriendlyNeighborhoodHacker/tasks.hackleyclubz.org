@@ -131,6 +131,7 @@ CREATE TABLE task_groups (
   name VARCHAR(255) NOT NULL,
   description TEXT DEFAULT NULL,
   owner_user_id INT NOT NULL,
+  reply_to_email VARCHAR(255) DEFAULT NULL COMMENT 'Reply-To header for the group''s emails; NULL = none. Works with or without a group_smtp_overrides row.',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_tg_owner FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE RESTRICT

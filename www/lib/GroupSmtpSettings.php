@@ -62,6 +62,31 @@ class GroupSmtpSettings {
         ];
     }
 
+    // ===== Reply-To (independent of the SMTP override) =====
+
+    /**
+     * The group's Reply-To address ('' when unset). Lives on task_groups, not
+     * on the override row: a group can keep the site-wide sender and still
+     * direct replies to e.g. the group leader's address.
+     */
+    public static function getReplyTo(int $groupId): string {
+        $st = self::pdo()->prepare('SELECT reply_to_email FROM task_groups WHERE id=?');
+        $st->execute([$groupId]);
+        return trim((string)($st->fetchColumn() ?: ''));
+    }
+
+    // Set or clear ('' = clear) the group's Reply-To address.
+    public static function saveReplyTo(?UserContext $ctx, int $groupId, string $email): void {
+        $ctx = self::assertCanManage($ctx, $groupId);
+        $email = trim($email);
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new InvalidArgumentException('Reply-to email is not a valid email address.');
+        }
+        self::pdo()->prepare('UPDATE task_groups SET reply_to_email=? WHERE id=?')
+            ->execute([$email !== '' ? $email : null, $groupId]);
+        self::log('group_smtp.reply_to', ['group_id' => $groupId, 'set' => $email !== '']);
+    }
+
     /**
      * Create or update the group's override. $data keys: smtp_host, smtp_port,
      * smtp_username, smtp_password, smtp_secure, from_email, from_name.

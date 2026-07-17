@@ -417,18 +417,43 @@ final class TaskNotificationManagementTest extends TestCase
             'assigned_to_user_id' => $this->assigneeId,
         ]);
 
-        $smtpBySubject = [];
-        $sender = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null) use (&$smtpBySubject): bool {
-            $smtpBySubject[$subject] = $smtp;
+        // Reply-To on the overridden group only — works alongside the override
+        // but is resolved independently.
+        GroupSmtpSettings::saveReplyTo($this->ownerCtx, $this->groupId, 'leader@example.com');
+
+        $sendsBySubject = [];
+        $sender = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null, string $replyTo = '') use (&$sendsBySubject): bool {
+            $sendsBySubject[$subject] = ['smtp' => $smtp, 'reply_to' => $replyTo];
             return true;
         };
 
         $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $sender);
         $this->assertSame(2, $stats['emails_sent']);
 
-        $this->assertSame('smtp.gmail.com', $smtpBySubject['Reminder: Overridden group task is due on July 15, 2026']['host'] ?? null);
-        $this->assertSame('club@gmail.com', $smtpBySubject['Reminder: Overridden group task is due on July 15, 2026']['from_email'] ?? null);
-        $this->assertNull($smtpBySubject['Reminder: Plain group task is due on July 15, 2026']);
+        $overridden = $sendsBySubject['Reminder: Overridden group task is due on July 15, 2026'];
+        $this->assertSame('smtp.gmail.com', $overridden['smtp']['host'] ?? null);
+        $this->assertSame('club@gmail.com', $overridden['smtp']['from_email'] ?? null);
+        $this->assertSame('leader@example.com', $overridden['reply_to']);
+
+        $plain = $sendsBySubject['Reminder: Plain group task is due on July 15, 2026'];
+        $this->assertNull($plain['smtp']);
+        $this->assertSame('', $plain['reply_to']);
+    }
+
+    public function testReplyToIsPassedWithoutAnSmtpOverride(): void
+    {
+        GroupSmtpSettings::saveReplyTo($this->ownerCtx, $this->groupId, 'leader@example.com');
+        $this->createTask('Reply-to only task', '2026-07-15', $this->assigneeId);
+
+        $received = null;
+        $sender = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null, string $replyTo = '') use (&$received): bool {
+            $received = ['smtp' => $smtp, 'reply_to' => $replyTo];
+            return true;
+        };
+
+        TaskNotificationManagement::runDailyNotifications('2026-07-15', $sender);
+        $this->assertNull($received['smtp']);
+        $this->assertSame('leader@example.com', $received['reply_to']);
     }
 
     public function testAssignmentEmailUsesGroupSmtpOverride(): void
@@ -443,16 +468,19 @@ final class TaskNotificationManagementTest extends TestCase
             'from_name' => '',
         ]);
 
+        GroupSmtpSettings::saveReplyTo($this->ownerCtx, $this->groupId, 'leader@example.com');
+
         $received = null;
-        $sender = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null) use (&$received): bool {
-            $received = $smtp;
+        $sender = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null, string $replyTo = '') use (&$received): bool {
+            $received = ['smtp' => $smtp, 'reply_to' => $replyTo];
             return true;
         };
 
         $taskId = $this->createTask('Bake cookies', '2026-07-22', $this->assigneeId);
         $this->assertTrue(TaskNotificationManagement::sendAssignmentEmail($taskId, $this->ownerCtx, $sender));
-        $this->assertSame('smtp.gmail.com', $received['host'] ?? null);
-        $this->assertSame('ssl', $received['secure'] ?? null);
-        $this->assertSame('Club Board', $received['from_name'] ?? null);
+        $this->assertSame('smtp.gmail.com', $received['smtp']['host'] ?? null);
+        $this->assertSame('ssl', $received['smtp']['secure'] ?? null);
+        $this->assertSame('Club Board', $received['smtp']['from_name'] ?? null);
+        $this->assertSame('leader@example.com', $received['reply_to']);
     }
 }

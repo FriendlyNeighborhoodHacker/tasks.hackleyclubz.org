@@ -99,7 +99,7 @@ function send_smtp_mail(string $toEmail, string $toName, string $subject, string
  * Enhanced version that returns detailed error information.
  * Returns array with 'success' (bool) and 'error' (string|null) keys.
  */
-function send_email_with_error(string $toEmail, string $subject, string $html, string $toName = '', string &$errorMessage = '', ?array $smtp = null): bool {
+function send_email_with_error(string $toEmail, string $subject, string $html, string $toName = '', string &$errorMessage = '', ?array $smtp = null, string $replyTo = ''): bool {
   if ($toName === '') $toName = $toEmail;
 
   if ($smtp !== null) {
@@ -274,6 +274,9 @@ function send_email_with_error(string $toEmail, string $subject, string $html, s
   $headers[] = "From: ".mb_encode_mimeheader($fromName)." <{$fromEmail}>";
   $headers[] = "To: ".mb_encode_mimeheader($toName)." <{$toEmail}>";
   $headers[] = "Subject: ".mb_encode_mimeheader($subject);
+  if ($replyTo !== '') {
+    $headers[] = "Reply-To: <{$replyTo}>";
+  }
   $headers[] = "MIME-Version: 1.0";
   $headers[] = "Content-Type: text/html; charset=UTF-8";
   $headers[] = "Content-Transfer-Encoding: 8bit";
@@ -283,8 +286,8 @@ function send_email_with_error(string $toEmail, string $subject, string $html, s
   $body = preg_replace("/^\./m", "..", $body);
 
   $data = implode("\r\n", $headers) . "\r\n\r\n" . $body . "\r\n.";
-  if (!$send($data)) { 
-    fclose($fp); 
+  if (!$send($data)) {
+    fclose($fp);
     $errorMessage = "Failed to send email data";
     return false;
   }
@@ -302,13 +305,15 @@ function send_email_with_error(string $toEmail, string $subject, string $html, s
 /**
  * Convenience wrapper with logging. Returns true/false. Pass $smtp (see
  * GroupSmtpSettings::getForSending) to send through a group's own SMTP
- * server instead of the global config.
+ * server instead of the global config, and/or $replyTo (see
+ * GroupSmtpSettings::getReplyTo) to set a Reply-To header — the two are
+ * independent.
  */
-function send_email(string $to, string $subject, string $html, string $toName = '', ?array $smtp = null): bool {
+function send_email(string $to, string $subject, string $html, string $toName = '', ?array $smtp = null, string $replyTo = ''): bool {
   if ($toName === '') $toName = $to;
 
   $errorMessage = '';
-  $success = send_email_with_error($to, $subject, $html, $toName, $errorMessage, $smtp);
+  $success = send_email_with_error($to, $subject, $html, $toName, $errorMessage, $smtp, $replyTo);
   
   // Log the email attempt
   $ctx = UserContext::getLoggedInUserContext();

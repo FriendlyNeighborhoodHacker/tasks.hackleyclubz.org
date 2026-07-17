@@ -177,4 +177,44 @@ final class GroupSmtpSettingsTest extends TestCase
         $this->assertNotNull(GroupSmtpSettings::getForSending($this->groupId));
         $this->assertNull(GroupSmtpSettings::getForSending($otherGroup));
     }
+
+    // --- Reply-To (independent of the override) ---
+
+    public function testReplyToIsIndependentOfTheOverride(): void
+    {
+        // Settable with no SMTP override at all.
+        $this->assertSame('', GroupSmtpSettings::getReplyTo($this->groupId));
+        GroupSmtpSettings::saveReplyTo($this->ownerCtx, $this->groupId, ' leader@example.com ');
+        $this->assertSame('leader@example.com', GroupSmtpSettings::getReplyTo($this->groupId));
+        $this->assertNull(GroupSmtpSettings::getForSending($this->groupId));
+
+        // Survives saving and removing an override.
+        GroupSmtpSettings::save($this->ownerCtx, $this->groupId, $this->validData());
+        GroupSmtpSettings::remove($this->ownerCtx, $this->groupId);
+        $this->assertSame('leader@example.com', GroupSmtpSettings::getReplyTo($this->groupId));
+
+        // Blank clears it.
+        GroupSmtpSettings::saveReplyTo($this->ownerCtx, $this->groupId, '');
+        $this->assertSame('', GroupSmtpSettings::getReplyTo($this->groupId));
+    }
+
+    public function testReplyToValidationAndPermissions(): void
+    {
+        try {
+            GroupSmtpSettings::saveReplyTo($this->ownerCtx, $this->groupId, 'not-an-email');
+            $this->fail('Expected InvalidArgumentException');
+        } catch (InvalidArgumentException $e) {
+            $this->addToAssertionCount(1);
+        }
+
+        foreach ([new UserContext($this->memberId, false), null] as $ctx) {
+            try {
+                GroupSmtpSettings::saveReplyTo($ctx, $this->groupId, 'leader@example.com');
+                $this->fail('Expected RuntimeException');
+            } catch (RuntimeException $e) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->assertSame('', GroupSmtpSettings::getReplyTo($this->groupId));
+    }
 }

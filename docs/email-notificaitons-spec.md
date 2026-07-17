@@ -167,9 +167,19 @@ The override applies to the group-scoped emails only — assignment emails and
 scheduled reminders (`lib/TaskNotificationManagement.php` resolves it per group
 and passes it to `send_email()`). Account-level emails (verification, password
 reset, admin mail test) always use the site-wide config. The settings card has
-a "Send Test Email to Me" button that sends through the saved override. The
-stored password is never rendered back into the form; leaving the password
-field blank on save keeps the existing one.
+a "Send Test Email to Me" button that sends through the group's effective
+config (override if saved, else the site-wide sender). The stored password is
+never rendered back into the form; leaving the password field blank on save
+keeps the existing one.
+
+## Per-group Reply-To (added 2026-07-16)
+
+The same "Email Sending" tab also has a Reply-To address
+(`task_groups.reply_to_email`), **independent of the SMTP override**: a group
+can keep the site-wide sender and still direct replies to e.g. the group
+leader's address (or combine both — org Gmail sends, leader receives replies).
+When set, the mailer adds a `Reply-To:` header to the group's assignment and
+reminder emails; blank means no header (replies go to the sending address).
 
 ---
 

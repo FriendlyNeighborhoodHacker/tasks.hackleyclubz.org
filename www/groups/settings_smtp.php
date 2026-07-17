@@ -26,6 +26,7 @@ unset($_SESSION['error'], $_SESSION['success'], $_SESSION['form_data']);
 // Repopulate from a failed submit, else the stored override. The password is
 // never rendered back into the form.
 $smtp = GroupSmtpSettings::get($groupId);
+$replyTo = $form['reply_to_email'] ?? GroupSmtpSettings::getReplyTo($groupId);
 $smtpValues = [
     'smtp_host' => $form['smtp_host'] ?? $smtp['smtp_host'] ?? '',
     'smtp_port' => $form['smtp_port'] ?? $smtp['smtp_port'] ?? 587,
@@ -41,6 +42,24 @@ header_html('Email Sending - ' . $group['name']);
 <?=group_settings_tabs_html($groupId, 'smtp')?>
 <?php if ($msg): ?><p class="flash"><?=h($msg)?></p><?php endif; ?>
 <?php if ($err): ?><p class="error"><?=h($err)?></p><?php endif; ?>
+
+<div class="card">
+  <h3>Reply-To Address<?php if ($replyTo !== ''): ?> <span class="badge success">customized</span><?php endif; ?></h3>
+  <p class="small">Replies to this group's emails go to this address — for example, the group leader's
+    email — no matter which account the emails are sent from. Works with the site-wide sender or with
+    the group's own SMTP settings below. Leave blank so replies go back to the sending address.</p>
+  <form method="post" action="/groups/settings_smtp_eval.php" class="stack">
+    <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
+    <input type="hidden" name="group_id" value="<?=$groupId?>">
+    <input type="hidden" name="action" value="save_reply_to">
+    <label>Reply-to email
+      <input type="text" name="reply_to_email" value="<?=h($replyTo)?>" placeholder="leader@example.com">
+    </label>
+    <div class="actions">
+      <button class="primary" type="submit">Save Reply-To</button>
+    </div>
+  </form>
+</div>
 
 <div class="card">
   <h3>Email Sending (SMTP)<?php if ($smtp): ?> <span class="badge success">customized</span><?php endif; ?></h3>
@@ -80,12 +99,14 @@ header_html('Email Sending - ' . $group['name']);
     </label>
     <div class="actions">
       <button class="primary" type="submit">Save SMTP Settings</button>
-      <?php if ($smtp): ?>
       <button class="button" type="submit" name="action" value="test_smtp_override">Send Test Email to Me</button>
+      <?php if ($smtp): ?>
       <button class="button" type="submit" name="action" value="remove_smtp_override"
               data-confirm="Remove this group's SMTP settings and go back to the site-wide sender?">Use site default</button>
       <?php endif; ?>
     </div>
+    <p class="small">"Send Test Email to Me" uses the group's saved settings — the SMTP override above if
+      one is saved (save it first to test it), otherwise the site-wide sender — plus the Reply-To address.</p>
   </form>
 </div>
 

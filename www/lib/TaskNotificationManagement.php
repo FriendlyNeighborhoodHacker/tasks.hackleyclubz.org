@@ -178,9 +178,10 @@ class TaskNotificationManagement {
     /**
      * Run the daily notification pass. Safe to run multiple times per day.
      *
-     * @param callable|null $sendEmail fn(string $to, string $toName, string $subject, string $html, ?array $smtp = null): bool
+     * @param callable|null $sendEmail fn(string $to, string $toName, string $subject, string $html, ?array $smtp = null, string $replyTo = ''): bool
      *                                 (defaults to the SMTP mailer; tests inject a fake — $smtp is
-     *                                 the group's SMTP override config, null for the site default)
+     *                                 the group's SMTP override config (null for the site default),
+     *                                 $replyTo the group's Reply-To address ('' for none))
      * @param bool $dryRun collect and report, but send nothing and record nothing
      * @param bool $ignoreThrottling re-send even if already sent (for testing)
      * @return array stats
@@ -188,8 +189,8 @@ class TaskNotificationManagement {
     public static function runDailyNotifications(string $today, ?callable $sendEmail = null, bool $dryRun = false, bool $ignoreThrottling = false): array {
         if ($sendEmail === null) {
             require_once __DIR__ . '/../mailer.php';
-            $sendEmail = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null): bool {
-                return send_email($to, $subject, $html, $toName, $smtp);
+            $sendEmail = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null, string $replyTo = ''): bool {
+                return send_email($to, $subject, $html, $toName, $smtp, $replyTo);
             };
         }
 
@@ -207,8 +208,9 @@ class TaskNotificationManagement {
         unset($digests['_stats']);
 
         // Per-run cache of each group's SMTP override (null = site default,
-        // hence array_key_exists rather than isset).
+        // hence array_key_exists rather than isset) and Reply-To address.
         $smtpByGroup = [];
+        $replyToByGroup = [];
 
         foreach ($digests as $rid => $digest) {
             if (empty($digest['triggers'])) continue;
@@ -226,12 +228,13 @@ class TaskNotificationManagement {
                 $gid = (int)$email['group_id'];
                 if (!array_key_exists($gid, $smtpByGroup)) {
                     $smtpByGroup[$gid] = GroupSmtpSettings::getForSending($gid);
+                    $replyToByGroup[$gid] = GroupSmtpSettings::getReplyTo($gid);
                 }
 
                 $ok = false;
                 $errorMessage = null;
                 try {
-                    $ok = (bool)$sendEmail((string)$user['email'], trim($user['first_name'] . ' ' . $user['last_name']), $email['subject'], $email['html'], $smtpByGroup[$gid]);
+                    $ok = (bool)$sendEmail((string)$user['email'], trim($user['first_name'] . ' ' . $user['last_name']), $email['subject'], $email['html'], $smtpByGroup[$gid], $replyToByGroup[$gid]);
                 } catch (\Throwable $e) {
                     $errorMessage = $e->getMessage();
                 }
@@ -434,18 +437,19 @@ class TaskNotificationManagement {
 
         if ($sendEmail === null) {
             require_once __DIR__ . '/../mailer.php';
-            $sendEmail = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null): bool {
-                return send_email($to, $subject, $html, $toName, $smtp);
+            $sendEmail = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null, string $replyTo = ''): bool {
+                return send_email($to, $subject, $html, $toName, $smtp, $replyTo);
             };
         }
 
         $smtp = GroupSmtpSettings::getForSending((int)$task['group_id']);
+        $replyTo = GroupSmtpSettings::getReplyTo((int)$task['group_id']);
 
         $ok = false;
         $errorMessage = null;
         try {
             $toName = trim(($task['assignee_first_name'] ?? '') . ' ' . ($task['assignee_last_name'] ?? ''));
-            $ok = (bool)$sendEmail((string)$task['assignee_email'], $toName, $subject, $html, $smtp);
+            $ok = (bool)$sendEmail((string)$task['assignee_email'], $toName, $subject, $html, $smtp, $replyTo);
         } catch (\Throwable $e) {
             $errorMessage = $e->getMessage();
         }
