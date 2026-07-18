@@ -49,3 +49,4 @@ var/
 
 xcschememanagement.plist
 secret/
+db_backups/
