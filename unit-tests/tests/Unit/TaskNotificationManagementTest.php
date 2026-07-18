@@ -54,7 +54,7 @@ final class TaskNotificationManagementTest extends TestCase
         return TaskManagement::createTask($this->ownerCtx, $this->groupId, [
             'title' => $title,
             'due_date' => $dueDate ?? '',
-            'assigned_to_user_id' => $assigneeId ?? '',
+            'assigned_user_ids' => $assigneeId !== null ? [$assigneeId] : [],
             'reminders' => $reminders,
         ]);
     }
@@ -154,7 +154,7 @@ final class TaskNotificationManagementTest extends TestCase
         TaskManagement::createTask($this->ownerCtx, $otherGroup, [
             'title' => 'Group two task',
             'due_date' => '2026-07-15',
-            'assigned_to_user_id' => $this->assigneeId,
+            'assigned_user_ids' => [$this->assigneeId],
         ]);
 
         // Templates are per group, so each group sends its own email.
@@ -392,6 +392,105 @@ final class TaskNotificationManagementTest extends TestCase
         $this->assertCount(0, $this->sentEmails);
     }
 
+    // --- multi-assignee ---
+
+    private function createMultiAssigneeTask(string $title, ?string $dueDate, array $assigneeIds, array $reminders = []): int
+    {
+        return TaskManagement::createTask($this->ownerCtx, $this->groupId, [
+            'title' => $title,
+            'due_date' => $dueDate ?? '',
+            'assigned_user_ids' => $assigneeIds,
+            'reminders' => $reminders,
+        ]);
+    }
+
+    public function testEveryEmailedAssigneeGetsTheReminder(): void
+    {
+        Settings::set('site_base_url', 'https://tasks.hackleyclubz.org');
+        $secondId = $this->insertUser('Second', 'second@example.com');
+        GroupManagement::addMember($this->ownerCtx, $this->groupId, $secondId, 'member');
+
+        $taskId = $this->createMultiAssigneeTask('Shared duty', '2026-07-15', [$this->assigneeId, $secondId]);
+
+        $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+        $this->assertSame(2, $stats['emails_sent']);
+
+        $recipients = array_column($this->sentEmails, 'to');
+        sort($recipients);
+        $this->assertSame(['assignee@example.com', 'second@example.com'], $recipients);
+
+        // Each email carries that recipient's OWN working access token.
+        $tokenUsers = [];
+        foreach ($this->sentEmails as $email) {
+            preg_match('#token=([0-9a-f]{64})#', $email['html'], $m);
+            $auth = TaskAccessTokens::verify($m[1]);
+            $this->assertSame($taskId, $auth['task_id']);
+            $tokenUsers[] = (int)$auth['user_id'];
+        }
+        sort($tokenUsers);
+        $this->assertSame([$this->assigneeId, $secondId], $tokenUsers);
+
+        // Idempotent per recipient: a second run sends nothing.
+        $stats = TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+        $this->assertSame(0, $stats['emails_sent']);
+    }
+
+    public function testMixedEmailAssigneesOnlyEmailedOnesGetItNoFallback(): void
+    {
+        $noEmailId = $this->insertUser('NoEmail', null);
+        GroupManagement::addMember($this->ownerCtx, $this->groupId, $noEmailId, 'member');
+
+        $this->createMultiAssigneeTask('Partially reachable', '2026-07-15', [$this->assigneeId, $noEmailId]);
+
+        TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+        $this->assertCount(1, $this->sentEmails);
+        $this->assertSame('assignee@example.com', $this->sentEmails[0]['to']);
+    }
+
+    public function testAllAssigneesEmaillessFallsBackToOwnerAdmins(): void
+    {
+        $noEmail1 = $this->insertUser('NoEmailOne', null);
+        $noEmail2 = $this->insertUser('NoEmailTwo', null);
+        GroupManagement::addMember($this->ownerCtx, $this->groupId, $noEmail1, 'member');
+        GroupManagement::addMember($this->ownerCtx, $this->groupId, $noEmail2, 'member');
+
+        $this->createMultiAssigneeTask('Unreachable pair', '2026-07-15', [$noEmail1, $noEmail2]);
+
+        TaskNotificationManagement::runDailyNotifications('2026-07-15', $this->fakeSender());
+        $this->assertCount(1, $this->sentEmails);
+        $this->assertSame('owner@example.com', $this->sentEmails[0]['to']);
+    }
+
+    public function testAssignmentEmailFansOutAndSkipsActor(): void
+    {
+        $secondId = $this->insertUser('Second', 'second@example.com');
+        GroupManagement::addMember($this->ownerCtx, $this->groupId, $secondId, 'member');
+
+        // Owner (the actor) is also an assignee — they get no email.
+        $taskId = $this->createMultiAssigneeTask('Big push', '2026-07-22', [$this->ownerId, $this->assigneeId, $secondId]);
+
+        $this->assertTrue(TaskNotificationManagement::sendAssignmentEmail($taskId, $this->ownerCtx, $this->fakeSender()));
+        $recipients = array_column($this->sentEmails, 'to');
+        sort($recipients);
+        $this->assertSame(['assignee@example.com', 'second@example.com'], $recipients);
+
+        $logged = pdo()->query("SELECT recipient_user_id FROM notification_log WHERE notification_type='assignment' ORDER BY recipient_user_id")->fetchAll();
+        $this->assertSame([$this->assigneeId, $secondId], array_map(fn($r) => (int)$r['recipient_user_id'], $logged));
+    }
+
+    public function testAssignmentEmailOnlyUserIdsRestrictsToNewlyAdded(): void
+    {
+        $secondId = $this->insertUser('Second', 'second@example.com');
+        GroupManagement::addMember($this->ownerCtx, $this->groupId, $secondId, 'member');
+
+        $taskId = $this->createMultiAssigneeTask('Growing team', '2026-07-22', [$this->assigneeId, $secondId]);
+
+        // Simulates edit_eval's diff: only the newly added person is notified.
+        $this->assertTrue(TaskNotificationManagement::sendAssignmentEmail($taskId, $this->ownerCtx, $this->fakeSender(), [$secondId]));
+        $this->assertCount(1, $this->sentEmails);
+        $this->assertSame('second@example.com', $this->sentEmails[0]['to']);
+    }
+
     // --- per-group SMTP overrides ---
 
     public function testGroupSmtpOverrideIsPassedToSender(): void
@@ -414,7 +513,7 @@ final class TaskNotificationManagementTest extends TestCase
         TaskManagement::createTask($this->ownerCtx, $plainGroup, [
             'title' => 'Plain group task',
             'due_date' => '2026-07-15',
-            'assigned_to_user_id' => $this->assigneeId,
+            'assigned_user_ids' => [$this->assigneeId],
         ]);
 
         // Reply-To on the overridden group only — works alongside the override

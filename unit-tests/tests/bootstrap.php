@@ -44,7 +44,7 @@ function test_reset_all(): void {
     $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
     foreach ([
         'activity_log', 'emails_sent', 'notification_log',
-        'task_access_tokens', 'task_comments', 'task_reminders', 'tasks',
+        'task_access_tokens', 'task_assignees', 'task_comments', 'task_reminders', 'tasks',
         'group_email_templates', 'group_smtp_overrides', 'group_members', 'task_groups',
         'private_files', 'public_files', 'users',
     ] as $table) {

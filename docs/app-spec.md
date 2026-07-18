@@ -20,7 +20,7 @@ A task is something that needs to be done by a certain date.
 
 Task Fields:
 - Created By
-- Assigned To:
+- Assigned To: one or more group members, all equal (a task may have multiple assignees; the form offers per-member checkboxes plus a "Select all"). "Only my tasks" matches tasks where the user is any of the assignees, and the by-owner view lists a multi-assignee task under each of its owners.
 - Title
 - Description / Instructions
 - Category

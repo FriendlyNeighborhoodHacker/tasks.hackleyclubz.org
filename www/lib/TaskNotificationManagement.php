@@ -21,8 +21,8 @@ require_once __DIR__ . '/GroupSmtpSettings.php';
  *    as its own email using that saved content.
  *  - An email is TRIGGERED by: an overdue task (daily), a task due today, or a
  *    task_reminders row whose "due_date - days_in_advance" is today.
- *  - Recipients: the assignee (if they have an email); for unassigned tasks
- *    (or assignees without email), the group's owner and admins.
+ *  - Recipients: every assignee with an email; for unassigned tasks (or when
+ *    no assignee has an email), the group's owner and admins.
  *  - Deduplicated via notification_log, so re-running is safe (idempotent).
  *  - Task names in the emails link through a task access token so the
  *    recipient can comment / mark complete without logging in.
@@ -81,8 +81,9 @@ class TaskNotificationManagement {
         $st->execute();
         $tasks = $st->fetchAll();
 
-        // Reminder rows for the evaluated tasks, keyed by task id.
+        // Reminder rows and assignees for the evaluated tasks, keyed by task id.
         $remindersByTask = [];
+        $assigneesByTask = [];
         if ($tasks) {
             $ids = array_column($tasks, 'id');
             $in = implode(',', array_fill(0, count($ids), '?'));
@@ -90,6 +91,11 @@ class TaskNotificationManagement {
             $rs->execute($ids);
             foreach ($rs->fetchAll() as $r) {
                 $remindersByTask[(int)$r['task_id']][] = (int)$r['days_in_advance'];
+            }
+            $as = self::pdo()->prepare("SELECT task_id, user_id FROM task_assignees WHERE task_id IN ($in)");
+            $as->execute($ids);
+            foreach ($as->fetchAll() as $r) {
+                $assigneesByTask[(int)$r['task_id']][] = (int)$r['user_id'];
             }
         }
 
@@ -140,12 +146,17 @@ class TaskNotificationManagement {
             }
             if ($bucket === null) continue;
 
-            // Recipient rules: assignee with an email, else the group's owner+admins.
+            // Recipient rules: every assignee with an email; if none of the
+            // assignees has one (or the task is unassigned), the group's
+            // owner+admins.
             $recipients = [];
-            $assignee = $usersById[(int)($t['assigned_to_user_id'] ?? 0)] ?? null;
-            if ($assignee && !empty($assignee['email'])) {
-                $recipients = [$assignee];
-            } else {
+            foreach ($assigneesByTask[$tid] ?? [] as $uid) {
+                $user = $usersById[$uid] ?? null;
+                if ($user && !empty($user['email'])) {
+                    $recipients[] = $user;
+                }
+            }
+            if (empty($recipients)) {
                 foreach ($groupAdmins[$gid] ?? [] as $uid) {
                     $recipients[] = $usersById[$uid];
                 }
@@ -400,18 +411,27 @@ class TaskNotificationManagement {
     // ===== Assignment emails =====
 
     /**
-     * Send the group's assignment-template email to a task's assignee. Called
-     * right after a task is created with an assignee or reassigned. Best-effort:
-     * returns false (never throws) when there is nothing to send — no assignee,
-     * no assignee email, or self-assignment.
+     * Send the group's assignment-template email to a task's assignees —
+     * every assignee with an email, except the actor. Called right after a
+     * task is created with assignees; on edit, pass $onlyUserIds to restrict
+     * to the NEWLY ADDED assignees. Best-effort: returns true when at least
+     * one email was sent, false when there was nothing to send; never throws.
      */
-    public static function sendAssignmentEmail(int $taskId, ?UserContext $assignerCtx = null, ?callable $sendEmail = null): bool {
+    public static function sendAssignmentEmail(int $taskId, ?UserContext $assignerCtx = null, ?callable $sendEmail = null, ?array $onlyUserIds = null): bool {
         require_once __DIR__ . '/TaskManagement.php';
 
         $task = TaskManagement::getTask($taskId);
-        if (!$task || empty($task['assigned_to_user_id']) || empty($task['assignee_email'])) return false;
-        $assigneeId = (int)$task['assigned_to_user_id'];
-        if ($assignerCtx && $assignerCtx->id === $assigneeId) return false;
+        if (!$task || empty($task['assignees'])) return false;
+
+        $recipients = [];
+        foreach ($task['assignees'] as $a) {
+            $uid = (int)$a['user_id'];
+            if ($assignerCtx && $assignerCtx->id === $uid) continue;          // never notify yourself
+            if ($onlyUserIds !== null && !in_array($uid, array_map('intval', $onlyUserIds), true)) continue;
+            if (empty($a['email'])) continue;
+            $recipients[] = $a;
+        }
+        if (!$recipients) return false;
 
         // The assigner is whoever performed the action, not the task creator.
         $assignerName = null;
@@ -423,18 +443,6 @@ class TaskNotificationManagement {
             }
         }
 
-        $recipient = ['id' => $assigneeId, 'first_name' => (string)($task['assignee_first_name'] ?? '')];
-        $tokens = self::taskTokens($task, $recipient);
-        if ($assignerName) {
-            $tokens['task_assigner'] = $assignerName;
-        }
-
-        $tpl = EmailTemplates::getTemplate((int)$task['group_id'], EmailTemplates::TYPE_ASSIGNMENT);
-        $subject = EmailTemplates::renderText($tpl['subject'], $tokens);
-        $html = EmailTemplates::renderHtml($tpl['body'], $tokens, [
-            'task_name' => self::taskLinkHtml($task, $assigneeId),
-        ]);
-
         if ($sendEmail === null) {
             require_once __DIR__ . '/../mailer.php';
             $sendEmail = function (string $to, string $toName, string $subject, string $html, ?array $smtp = null, string $replyTo = ''): bool {
@@ -442,24 +450,39 @@ class TaskNotificationManagement {
             };
         }
 
+        $tpl = EmailTemplates::getTemplate((int)$task['group_id'], EmailTemplates::TYPE_ASSIGNMENT);
         $smtp = GroupSmtpSettings::getForSending((int)$task['group_id']);
         $replyTo = GroupSmtpSettings::getReplyTo((int)$task['group_id']);
 
-        $ok = false;
-        $errorMessage = null;
-        try {
-            $toName = trim(($task['assignee_first_name'] ?? '') . ' ' . ($task['assignee_last_name'] ?? ''));
-            $ok = (bool)$sendEmail((string)$task['assignee_email'], $toName, $subject, $html, $smtp, $replyTo);
-        } catch (\Throwable $e) {
-            $errorMessage = $e->getMessage();
-        }
+        $anySent = false;
+        foreach ($recipients as $a) {
+            $uid = (int)$a['user_id'];
+            $tokens = self::taskTokens($task, ['id' => $uid, 'first_name' => (string)($a['first_name'] ?? '')]);
+            if ($assignerName) {
+                $tokens['task_assigner'] = $assignerName;
+            }
+            $subject = EmailTemplates::renderText($tpl['subject'], $tokens);
+            $html = EmailTemplates::renderHtml($tpl['body'], $tokens, [
+                'task_name' => self::taskLinkHtml($task, $uid),
+            ]);
 
-        try {
-            self::recordNotification($taskId, (int)$task['group_id'], $assigneeId, 'assignment', null, date('Y-m-d'), (string)$task['assignee_email'], $ok, $ok ? null : ($errorMessage ?? 'send failed'));
-        } catch (\Throwable $e) {
-            // Logging must never break the task save.
+            $ok = false;
+            $errorMessage = null;
+            try {
+                $toName = trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? ''));
+                $ok = (bool)$sendEmail((string)$a['email'], $toName, $subject, $html, $smtp, $replyTo);
+            } catch (\Throwable $e) {
+                $errorMessage = $e->getMessage();
+            }
+            $anySent = $anySent || $ok;
+
+            try {
+                self::recordNotification($taskId, (int)$task['group_id'], $uid, 'assignment', null, date('Y-m-d'), (string)$a['email'], $ok, $ok ? null : ($errorMessage ?? 'send failed'));
+            } catch (\Throwable $e) {
+                // Logging must never break the task save.
+            }
         }
-        return $ok;
+        return $anySent;
     }
 
     // ===== Schedule display helpers (task list UI) =====

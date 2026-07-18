@@ -87,9 +87,12 @@ Suggested fields:
 
 # Recipient Rules
 
-Normally, notifications are sent to the responsible person.
+Normally, notifications are sent to every assignee who has an email address —
+a task may have several assignees, and each gets their own email with their
+own access-token link.
 
-If no responsible person has been assigned, notifications should be sent to the family administrator(s).
+If no responsible person has been assigned (or no assignee has an email),
+notifications should be sent to the group owner and admins.
 
 If an obligation applies to a child, notifications should still be sent to the responsible adult.
 
@@ -105,8 +108,9 @@ only once a group customizes a template, and deleting it restores the default.
 
 Template types:
 
-1. **assignment** — sent immediately when a task is created with an assignee or
-   reassigned (never for self-assignment).
+1. **assignment** — sent immediately, one email per assignee with an email
+   address, when a task is created with assignees; on edit, only NEWLY ADDED
+   assignees are notified (never the actor themselves).
 2. **reminder_single** — the scheduled reminder when a recipient has exactly one
    triggered task in a group.
 3. **reminder_multi** — the scheduled reminder when a recipient has several

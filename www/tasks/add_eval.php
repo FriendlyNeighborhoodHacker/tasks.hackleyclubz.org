@@ -24,7 +24,7 @@ try {
     $ctx = UserContext::getLoggedInUserContext();
     $data = task_data_from_post($_POST);
 
-    if (($data['assigned_to_user_id'] ?? '') === '__new__') {
+    if (!empty($_POST['assign_new_person'])) {
         if (!GroupManagement::canManageGroup($ctx, $groupId)) {
             throw new RuntimeException('Only the group owner or a group admin can add a new person.');
         }
@@ -35,14 +35,14 @@ try {
             (string)($_POST['new_person_email'] ?? '')
         );
         GroupManagement::addMember($ctx, $groupId, $newUserId, 'member');
-        $data['assigned_to_user_id'] = $newUserId;
+        $data['assigned_user_ids'][] = $newUserId;
     }
 
     $id = TaskManagement::createTask($ctx, $groupId, $data);
 
-    // Notify the assignee with the group's assignment email template.
-    // Best-effort: a mail problem must not block the save.
-    if (!empty($data['assigned_to_user_id'])) {
+    // Notify every assignee (except the actor) with the group's assignment
+    // email template. Best-effort: a mail problem must not block the save.
+    if (!empty($data['assigned_user_ids'])) {
         try {
             TaskNotificationManagement::sendAssignmentEmail($id, $ctx);
         } catch (Throwable $e) {

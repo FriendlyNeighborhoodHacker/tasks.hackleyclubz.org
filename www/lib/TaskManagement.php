@@ -68,11 +68,12 @@ class TaskManagement {
         self::assertMemberOfGroup($ctx, (int)$task['group_id']);
     }
 
-    // Creator, assignee, group admin, owner, or app admin.
+    // Creator, any assignee, group admin, owner, or app admin.
     private static function canEditTask(UserContext $ctx, array $task): bool {
         if ($ctx->admin) return true;
         if ((int)($task['created_by_user_id'] ?? 0) === $ctx->id) return true;
-        if ((int)($task['assigned_to_user_id'] ?? 0) === $ctx->id) return true;
+        $assigneeIds = array_map('intval', array_column($task['assignees'] ?? [], 'user_id'));
+        if (in_array($ctx->id, $assigneeIds, true)) return true;
         return GroupManagement::isGroupAdmin($ctx->id, (int)$task['group_id']);
     }
 
@@ -101,10 +102,19 @@ class TaskManagement {
             }
         }
 
-        $assignedTo = isset($data['assigned_to_user_id']) && $data['assigned_to_user_id'] !== ''
-            ? (int)$data['assigned_to_user_id'] : null;
-        if ($assignedTo !== null && !GroupManagement::isMember($assignedTo, $groupId)) {
-            throw new InvalidArgumentException('The assignee must be a member of the group.');
+        // Any number of assignees; each must belong to the group.
+        $assignedIds = [];
+        foreach ((array)($data['assigned_user_ids'] ?? []) as $id) {
+            if ($id === '' || $id === null) continue;
+            $id = (int)$id;
+            if ($id <= 0) continue;
+            $assignedIds[$id] = true;
+        }
+        $assignedIds = array_keys($assignedIds);
+        foreach ($assignedIds as $id) {
+            if (!GroupManagement::isMember($id, $groupId)) {
+                throw new InvalidArgumentException('The assignee must be a member of the group.');
+            }
         }
 
         return [
@@ -112,25 +122,28 @@ class TaskManagement {
             'description' => $description !== '' ? $description : null,
             'category' => $category !== '' ? $category : null,
             'due_date' => $dueDate !== '' ? $dueDate : null,
-            'assigned_to_user_id' => $assignedTo,
+            'assigned_user_ids' => $assignedIds,
         ];
     }
 
     // ===== Task CRUD =====
 
-    // $data: title, description, category, due_date, assigned_to_user_id,
-    // reminders (optional array of days-in-advance ints; when omitted and the
-    // task has a due date, a default reminder is added).
+    // $data: title, description, category, due_date, assigned_user_ids
+    // (array — a task may have any number of assignees), reminders (optional
+    // array of days-in-advance ints; when omitted and the task has a due
+    // date, a default reminder is added).
     public static function createTask(?UserContext $ctx, int $groupId, array $data): int {
         $ctx = self::assertMemberOfGroup($ctx, $groupId);
         $f = self::normalizeFields($groupId, $data);
 
         $st = self::pdo()->prepare(
-            'INSERT INTO tasks (group_id, title, description, category, due_date, assigned_to_user_id, created_by_user_id)
-             VALUES (?,?,?,?,?,?,?)'
+            'INSERT INTO tasks (group_id, title, description, category, due_date, created_by_user_id)
+             VALUES (?,?,?,?,?,?)'
         );
-        $st->execute([$groupId, $f['title'], $f['description'], $f['category'], $f['due_date'], $f['assigned_to_user_id'], $ctx->id]);
+        $st->execute([$groupId, $f['title'], $f['description'], $f['category'], $f['due_date'], $ctx->id]);
         $taskId = (int)self::pdo()->lastInsertId();
+
+        self::replaceAssignees($taskId, $f['assigned_user_ids']);
 
         if (array_key_exists('reminders', $data)) {
             self::replaceReminders($taskId, (array)$data['reminders']);
@@ -152,9 +165,11 @@ class TaskManagement {
         $f = self::normalizeFields((int)$task['group_id'], $data);
 
         $st = self::pdo()->prepare(
-            'UPDATE tasks SET title=?, description=?, category=?, due_date=?, assigned_to_user_id=? WHERE id=?'
+            'UPDATE tasks SET title=?, description=?, category=?, due_date=? WHERE id=?'
         );
-        $ok = $st->execute([$f['title'], $f['description'], $f['category'], $f['due_date'], $f['assigned_to_user_id'], $taskId]);
+        $ok = $st->execute([$f['title'], $f['description'], $f['category'], $f['due_date'], $taskId]);
+
+        self::replaceAssignees($taskId, $f['assigned_user_ids']);
 
         if (array_key_exists('reminders', $data)) {
             self::replaceReminders($taskId, (array)$data['reminders']);
@@ -195,28 +210,24 @@ class TaskManagement {
     public static function getTask(int $taskId): ?array {
         $st = self::pdo()->prepare(
             'SELECT t.*, g.name AS group_name,
-                    a.first_name AS assignee_first_name, a.last_name AS assignee_last_name, a.email AS assignee_email,
                     c.first_name AS creator_first_name, c.last_name AS creator_last_name,
                     d.first_name AS completer_first_name, d.last_name AS completer_last_name
              FROM tasks t
              JOIN task_groups g ON g.id = t.group_id
-             LEFT JOIN users a ON a.id = t.assigned_to_user_id
              LEFT JOIN users c ON c.id = t.created_by_user_id
              LEFT JOIN users d ON d.id = t.completed_by_user_id
              WHERE t.id = ? LIMIT 1'
         );
         $st->execute([$taskId]);
         $row = $st->fetch();
-        return $row ?: null;
+        if (!$row) return null;
+        return self::attachAssignees([$row])[0];
     }
 
-    // $filters: search, assigned_to_user_id, category, include_done (bool)
+    // $filters: search, assigned_to_user_id (matches tasks where that user is
+    // ANY of the assignees), category, include_done (bool)
     public static function listTasks(int $groupId, array $filters = []): array {
-        $sql = 'SELECT t.*,
-                       a.first_name AS assignee_first_name, a.last_name AS assignee_last_name
-                FROM tasks t
-                LEFT JOIN users a ON a.id = t.assigned_to_user_id
-                WHERE t.group_id = ?';
+        $sql = 'SELECT t.* FROM tasks t WHERE t.group_id = ?';
         $params = [$groupId];
 
         if (!empty($filters['search'])) {
@@ -225,7 +236,7 @@ class TaskManagement {
             array_push($params, $term, $term, $term);
         }
         if (!empty($filters['assigned_to_user_id'])) {
-            $sql .= ' AND t.assigned_to_user_id = ?';
+            $sql .= ' AND EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)';
             $params[] = (int)$filters['assigned_to_user_id'];
         }
         if (!empty($filters['category'])) {
@@ -240,7 +251,7 @@ class TaskManagement {
 
         $st = self::pdo()->prepare($sql);
         $st->execute($params);
-        return $st->fetchAll();
+        return self::attachAssignees($st->fetchAll());
     }
 
     // Distinct categories previously used in the group (for the form datalist).
@@ -372,6 +383,52 @@ class TaskManagement {
     public static function storeUploadedAttachment(?UserContext $ctx, array $file): int {
         $ctx = self::assertLoggedIn($ctx);
         return Files::storeUploadedPrivateFile($ctx->id, $file, self::ATTACHMENT_MAX_BYTES, self::ATTACHMENT_MIME_TYPES);
+    }
+
+    // ===== Assignees =====
+
+    // Assignee rows for many tasks at once:
+    // [task_id => [['user_id','first_name','last_name','email'], ...]]
+    public static function assigneesByTask(array $taskIds): array {
+        if (!$taskIds) return [];
+        $in = implode(',', array_fill(0, count($taskIds), '?'));
+        $st = self::pdo()->prepare(
+            "SELECT ta.task_id, u.id AS user_id, u.first_name, u.last_name, u.email
+             FROM task_assignees ta
+             JOIN users u ON u.id = ta.user_id
+             WHERE ta.task_id IN ($in)
+             ORDER BY u.first_name, u.last_name"
+        );
+        $st->execute(array_map('intval', $taskIds));
+        $out = [];
+        foreach ($st->fetchAll() as $row) {
+            $out[(int)$row['task_id']][] = [
+                'user_id' => (int)$row['user_id'],
+                'first_name' => $row['first_name'],
+                'last_name' => $row['last_name'],
+                'email' => $row['email'],
+            ];
+        }
+        return $out;
+    }
+
+    // Attach an 'assignees' array to each task row (one bulk query).
+    private static function attachAssignees(array $rows): array {
+        $byTask = self::assigneesByTask(array_column($rows, 'id'));
+        foreach ($rows as &$row) {
+            $row['assignees'] = $byTask[(int)$row['id']] ?? [];
+        }
+        return $rows;
+    }
+
+    private static function replaceAssignees(int $taskId, array $userIds): void {
+        $pdo = self::pdo();
+        $pdo->prepare('DELETE FROM task_assignees WHERE task_id=?')->execute([$taskId]);
+        if (!$userIds) return;
+        $st = $pdo->prepare('INSERT IGNORE INTO task_assignees (task_id, user_id) VALUES (?,?)');
+        foreach (array_unique(array_map('intval', $userIds)) as $uid) {
+            $st->execute([$taskId, $uid]);
+        }
     }
 
     // ===== Reminders =====
@@ -516,18 +573,28 @@ class TaskManagement {
     }
 
     // Buckets tasks by assignee, alphabetical with "Unassigned" last (and
-    // "Completed" after that when done tasks are included).
+    // "Completed" after that when done tasks are included). Tasks carry an
+    // 'assignees' array; a task with several assignees appears under EACH
+    // of their buckets.
     public static function groupTasksByOwner(array $tasks): array {
         $byOwner = [];
         $unassigned = [];
         $done = [];
 
         foreach ($tasks as $t) {
-            $name = trim(($t['assignee_first_name'] ?? '') . ' ' . ($t['assignee_last_name'] ?? ''));
             if (!empty($t['is_done'])) {
                 $done[] = $t;
-            } elseif ($name !== '') {
-                $byOwner[$name][] = $t;
+                continue;
+            }
+            $names = [];
+            foreach ($t['assignees'] ?? [] as $a) {
+                $name = trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? ''));
+                if ($name !== '') $names[$name] = true;
+            }
+            if ($names) {
+                foreach (array_keys($names) as $name) {
+                    $byOwner[$name][] = $t;
+                }
             } else {
                 $unassigned[] = $t;
             }

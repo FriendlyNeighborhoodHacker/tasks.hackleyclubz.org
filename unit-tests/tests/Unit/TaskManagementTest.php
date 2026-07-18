@@ -49,13 +49,13 @@ final class TaskManagementTest extends TestCase
             'title' => 'Bring snacks',
             'due_date' => '2026-08-01',
             'category' => 'Events',
-            'assigned_to_user_id' => $this->otherMemberCtx->id,
+            'assigned_user_ids' => [$this->otherMemberCtx->id],
         ]);
 
         $task = TaskManagement::getTask($id);
         $this->assertSame('Bring snacks', $task['title']);
         $this->assertSame('2026-08-01', $task['due_date']);
-        $this->assertSame($this->otherMemberCtx->id, (int)$task['assigned_to_user_id']);
+        $this->assertSame([$this->otherMemberCtx->id], array_column($task['assignees'], 'user_id'));
         $this->assertSame($this->memberCtx->id, (int)$task['created_by_user_id']);
         $this->assertSame(0, (int)$task['is_done']);
 
@@ -93,7 +93,7 @@ final class TaskManagementTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         TaskManagement::createTask($this->memberCtx, $this->groupId, [
             'title' => 'Bad assignee',
-            'assigned_to_user_id' => $this->outsiderCtx->id,
+            'assigned_user_ids' => [$this->outsiderCtx->id],
         ]);
     }
 
@@ -109,7 +109,7 @@ final class TaskManagementTest extends TestCase
     {
         return TaskManagement::createTask($this->memberCtx, $this->groupId, [
             'title' => 'Assigned task',
-            'assigned_to_user_id' => $this->otherMemberCtx->id,
+            'assigned_user_ids' => [$this->otherMemberCtx->id],
         ]);
     }
 
@@ -119,7 +119,7 @@ final class TaskManagementTest extends TestCase
 
         // updateTask has full-replace semantics (forms post every field), so
         // keep the assignment while editing the title.
-        $edit = fn(string $title) => ['title' => $title, 'assigned_to_user_id' => $this->otherMemberCtx->id];
+        $edit = fn(string $title) => ['title' => $title, 'assigned_user_ids' => [$this->otherMemberCtx->id]];
         $this->assertTrue(TaskManagement::updateTask($this->memberCtx, $id, $edit('By creator')));
         $this->assertTrue(TaskManagement::updateTask($this->otherMemberCtx, $id, $edit('By assignee')));
         $this->assertTrue(TaskManagement::updateTask($this->ownerCtx, $id, $edit('By owner')));
@@ -237,13 +237,13 @@ final class TaskManagementTest extends TestCase
     public function testListTasksMineFilterAndDoneFilter(): void
     {
         $mine = TaskManagement::createTask($this->memberCtx, $this->groupId, [
-            'title' => 'Mine', 'assigned_to_user_id' => $this->memberCtx->id,
+            'title' => 'Mine', 'assigned_user_ids' => [$this->memberCtx->id],
         ]);
         TaskManagement::createTask($this->memberCtx, $this->groupId, [
-            'title' => 'Theirs', 'assigned_to_user_id' => $this->otherMemberCtx->id,
+            'title' => 'Theirs', 'assigned_user_ids' => [$this->otherMemberCtx->id],
         ]);
         $done = TaskManagement::createTask($this->memberCtx, $this->groupId, [
-            'title' => 'Done one', 'assigned_to_user_id' => $this->memberCtx->id,
+            'title' => 'Done one', 'assigned_user_ids' => [$this->memberCtx->id],
         ]);
         TaskManagement::markComplete($this->memberCtx, $done);
 
@@ -313,12 +313,14 @@ final class TaskManagementTest extends TestCase
 
     public function testGroupTasksByOwner(): void
     {
+        $zoe = ['user_id' => 1, 'first_name' => 'Zoe', 'last_name' => 'Young'];
+        $ada = ['user_id' => 2, 'first_name' => 'ada', 'last_name' => 'Byron'];
         $tasks = [
-            ['id' => 1, 'title' => 'B', 'assignee_first_name' => 'Zoe', 'assignee_last_name' => 'Young', 'is_done' => 0],
-            ['id' => 2, 'title' => 'A', 'assignee_first_name' => 'ada', 'assignee_last_name' => 'Byron', 'is_done' => 0],
-            ['id' => 3, 'title' => 'C', 'assignee_first_name' => null, 'assignee_last_name' => null, 'is_done' => 0],
-            ['id' => 4, 'title' => 'E', 'assignee_first_name' => 'Zoe', 'assignee_last_name' => 'Young', 'is_done' => 0],
-            ['id' => 5, 'title' => 'D', 'assignee_first_name' => 'ada', 'assignee_last_name' => 'Byron', 'is_done' => 1, 'completion_date' => '2026-07-10'],
+            ['id' => 1, 'title' => 'B', 'assignees' => [$zoe], 'is_done' => 0],
+            ['id' => 2, 'title' => 'A', 'assignees' => [$ada], 'is_done' => 0],
+            ['id' => 3, 'title' => 'C', 'assignees' => [], 'is_done' => 0],
+            ['id' => 4, 'title' => 'E', 'assignees' => [$zoe], 'is_done' => 0],
+            ['id' => 5, 'title' => 'D', 'assignees' => [$ada], 'is_done' => 1, 'completion_date' => '2026-07-10'],
         ];
 
         $groups = TaskManagement::groupTasksByOwner($tasks);
@@ -326,5 +328,83 @@ final class TaskManagementTest extends TestCase
 
         $this->assertSame(['ada Byron', 'Zoe Young', 'Unassigned', 'Completed'], $labels);
         $this->assertCount(2, $groups[1]['tasks']);
+    }
+
+    public function testGroupTasksByOwnerListsMultiAssigneeTaskUnderEachOwner(): void
+    {
+        $zoe = ['user_id' => 1, 'first_name' => 'Zoe', 'last_name' => 'Young'];
+        $ada = ['user_id' => 2, 'first_name' => 'ada', 'last_name' => 'Byron'];
+        $mel = ['user_id' => 3, 'first_name' => 'Mel', 'last_name' => 'Ott'];
+        $tasks = [
+            ['id' => 1, 'title' => 'Shared', 'assignees' => [$zoe, $ada, $mel], 'is_done' => 0],
+            ['id' => 2, 'title' => 'Solo', 'assignees' => [$ada], 'is_done' => 0],
+        ];
+
+        $groups = TaskManagement::groupTasksByOwner($tasks);
+        $labels = array_column($groups, 'label');
+
+        $this->assertSame(['ada Byron', 'Mel Ott', 'Zoe Young'], $labels);
+        $this->assertCount(2, $groups[0]['tasks']); // ada: Shared + Solo
+        $this->assertCount(1, $groups[1]['tasks']);
+        $this->assertCount(1, $groups[2]['tasks']);
+    }
+
+    // --- multi-assignee ---
+
+    public function testMultiAssigneeRoundtripAndDedup(): void
+    {
+        $id = TaskManagement::createTask($this->memberCtx, $this->groupId, [
+            'title' => 'Team task',
+            'assigned_user_ids' => [$this->otherMemberCtx->id, $this->ownerCtx->id, $this->otherMemberCtx->id],
+        ]);
+
+        $task = TaskManagement::getTask($id);
+        $ids = array_column($task['assignees'], 'user_id');
+        sort($ids);
+        $this->assertSame([$this->ownerCtx->id, $this->otherMemberCtx->id], $ids);
+    }
+
+    public function testUpdateReplacesAssigneeSet(): void
+    {
+        $id = TaskManagement::createTask($this->memberCtx, $this->groupId, [
+            'title' => 'Rotating duty',
+            'assigned_user_ids' => [$this->otherMemberCtx->id],
+        ]);
+        TaskManagement::updateTask($this->memberCtx, $id, [
+            'title' => 'Rotating duty',
+            'assigned_user_ids' => [$this->ownerCtx->id, $this->memberCtx->id],
+        ]);
+
+        $ids = array_column(TaskManagement::getTask($id)['assignees'], 'user_id');
+        sort($ids);
+        $this->assertSame([$this->ownerCtx->id, $this->memberCtx->id], $ids);
+    }
+
+    public function testAnyAssigneeCanEdit(): void
+    {
+        $id = TaskManagement::createTask($this->ownerCtx, $this->groupId, [
+            'title' => 'Shared chore',
+            'assigned_user_ids' => [$this->memberCtx->id, $this->otherMemberCtx->id],
+        ]);
+
+        $edit = fn(string $title) => ['title' => $title, 'assigned_user_ids' => [$this->memberCtx->id, $this->otherMemberCtx->id]];
+        $this->assertTrue(TaskManagement::updateTask($this->memberCtx, $id, $edit('By first assignee')));
+        $this->assertTrue(TaskManagement::updateTask($this->otherMemberCtx, $id, $edit('By second assignee')));
+    }
+
+    public function testMineFilterMatchesAnyAssignee(): void
+    {
+        TaskManagement::createTask($this->ownerCtx, $this->groupId, [
+            'title' => 'Shared', 'assigned_user_ids' => [$this->memberCtx->id, $this->otherMemberCtx->id],
+        ]);
+        TaskManagement::createTask($this->ownerCtx, $this->groupId, [
+            'title' => 'Nobody\'s', 'assigned_user_ids' => [],
+        ]);
+
+        foreach ([$this->memberCtx->id, $this->otherMemberCtx->id] as $uid) {
+            $mine = TaskManagement::listTasks($this->groupId, ['assigned_to_user_id' => $uid]);
+            $this->assertCount(1, $mine);
+            $this->assertSame('Shared', $mine[0]['title']);
+        }
     }
 }

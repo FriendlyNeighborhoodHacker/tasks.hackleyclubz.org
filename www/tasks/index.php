@@ -74,9 +74,9 @@ function board_group_color(string $label, int $cycleIndex): string {
     return $cycle[$cycleIndex % count($cycle)];
 }
 
-// Assignee chip (shared person_chip_html lives in partials.php).
+// Assignee chips (shared person_chips_html lives in partials.php).
 function board_assignee_html(array $t): string {
-    return person_chip_html($t['assignee_first_name'] ?? '', $t['assignee_last_name'] ?? '');
+    return person_chips_html($t['assignees'] ?? []);
 }
 
 // Due/status column as a monday.com-style colored pill. For completed tasks

@@ -47,6 +47,17 @@ function person_chip_html(?string $first, ?string $last, string $emptyLabel = 'U
         . '</span><span class="assignee-name">' . h($name) . '</span></span>';
 }
 
+// Chips for a task's assignees (rows with first_name/last_name keys, e.g.
+// the 'assignees' array TaskManagement attaches to task rows).
+function person_chips_html(array $assignees, string $emptyLabel = 'Unassigned'): string {
+    if (!$assignees) return '<span class="unassigned">' . h($emptyLabel) . '</span>';
+    $chips = array_map(
+        fn($a) => person_chip_html($a['first_name'] ?? '', $a['last_name'] ?? '', $emptyLabel),
+        $assignees
+    );
+    return '<span class="assignee-list">' . implode(' ', $chips) . '</span>';
+}
+
 // Shared presentation for a task's due date: "3 days overdue" /
 // "Due today" / "Due in 5 days" / "Due Mar 15, 2027", colored appropriately.
 function task_due_html(?string $dueDate, ?string $today = null): string {

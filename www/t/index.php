@@ -46,7 +46,10 @@ $msg = $_SESSION['t_success'] ?? null;
 $err = $_SESSION['t_error'] ?? null;
 unset($_SESSION['t_success'], $_SESSION['t_error']);
 
-$assignee = trim(($task['assignee_first_name'] ?? '') . ' ' . ($task['assignee_last_name'] ?? ''));
+$assignee = implode(', ', array_filter(array_map(
+    fn($a) => trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? '')),
+    $task['assignees'] ?? []
+)));
 
 ApplicationUI::minimalHeaderHtml($task['title']);
 ?>

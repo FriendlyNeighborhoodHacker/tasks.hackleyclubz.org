@@ -26,13 +26,14 @@ unset($_SESSION['error'], $_SESSION['form_data']);
 if ($form) {
     $values = $form;
     $values['reminder_days'] = $form['reminder_days'] ?? [];
+    $values['assigned_user_ids'] = $form['assigned_user_ids'] ?? [];
 } else {
     $values = [
         'title' => $task['title'],
         'description' => $task['description'] ?? '',
         'category' => $task['category'] ?? '',
         'due_date' => $task['due_date'] ?? '',
-        'assigned_to_user_id' => $task['assigned_to_user_id'] ?? '',
+        'assigned_user_ids' => array_column($task['assignees'] ?? [], 'user_id'),
         'reminder_days' => array_column(TaskManagement::listReminders($taskId), 'days_in_advance'),
     ];
 }

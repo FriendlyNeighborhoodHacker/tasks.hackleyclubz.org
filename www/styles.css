@@ -877,16 +877,45 @@ button.pill-btn:hover {
   margin: 6px 0;
 }
 
-fieldset.reminders {
+fieldset.reminders,
+fieldset.assignees {
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 10px 12px;
 }
 
-fieldset.reminders legend {
+fieldset.reminders legend,
+fieldset.assignees legend {
   font-size: 13px;
   color: var(--color-text-muted);
   padding: 0 4px;
+}
+
+/* Assignee checkboxes: compact multi-column list of group members */
+.assignee-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 2px 14px;
+  margin: 6px 0;
+}
+
+.assignee-checklist label.inline,
+fieldset.assignees > label.inline {
+  font-weight: 400;
+  margin: 2px 0;
+}
+
+.assignee-select-all {
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--color-border);
+  margin-bottom: 4px;
+}
+
+/* Multiple assignee chips wrap within a table cell */
+.assignee-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 
 .reminder-row {

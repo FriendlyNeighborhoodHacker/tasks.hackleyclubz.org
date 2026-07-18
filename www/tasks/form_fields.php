@@ -15,14 +15,14 @@ function task_data_from_post(array $post): array {
         'description' => $post['description'] ?? '',
         'category' => $post['category'] ?? '',
         'due_date' => $post['due_date'] ?? '',
-        'assigned_to_user_id' => $post['assigned_to_user_id'] ?? '',
+        'assigned_user_ids' => array_map('intval', (array)($post['assigned_user_ids'] ?? [])),
         'reminders' => $reminders,
     ];
 }
 
 /**
- * $values: title, description, category, due_date, assigned_to_user_id,
- *          reminder_days (array of ints)
+ * $values: title, description, category, due_date, assigned_user_ids (array),
+ *          assign_new_person, reminder_days (array of ints)
  * $opts:   members (group member rows), categories (strings),
  *          can_add_person (bool — show the "New person…" assignee option)
  */
@@ -30,7 +30,8 @@ function render_task_form_fields(array $values, array $opts = []): void {
     $members = $opts['members'] ?? [];
     $categories = $opts['categories'] ?? [];
     $canAddPerson = !empty($opts['can_add_person']);
-    $assignedTo = (string)($values['assigned_to_user_id'] ?? '');
+    $assignedIds = array_map('intval', (array)($values['assigned_user_ids'] ?? []));
+    $assignNewPerson = !empty($values['assign_new_person']);
     $reminderDays = $values['reminder_days'] ?? [];
     ?>
     <div class="grid">
@@ -45,23 +46,32 @@ function render_task_form_fields(array $values, array $opts = []): void {
           <?php endforeach; ?>
         </datalist>
       </label>
-      <label>Assigned to
-        <select name="assigned_to_user_id" id="assignedToSelect">
-          <option value="">— Unassigned —</option>
-          <?php foreach ($members as $m): ?>
-            <option value="<?=(int)$m['id']?>" <?=$assignedTo !== '' && (int)$assignedTo === (int)$m['id'] ? 'selected' : ''?>>
-              <?=h(trim($m['first_name'] . ' ' . $m['last_name']))?>
-            </option>
-          <?php endforeach; ?>
-          <?php if ($canAddPerson): ?>
-            <option value="__new__" <?=$assignedTo === '__new__' ? 'selected' : ''?>>New person…</option>
-          <?php endif; ?>
-        </select>
-      </label>
       <label>Due date
         <input type="date" name="due_date" value="<?=h($values['due_date'] ?? '')?>">
       </label>
     </div>
+
+    <fieldset class="assignees">
+      <legend>Assigned to (any number of people)</legend>
+      <label class="inline assignee-select-all">
+        <input type="checkbox" id="assignSelectAll"> <strong>Select all</strong>
+      </label>
+      <div class="assignee-checklist" id="assigneeChecklist">
+        <?php foreach ($members as $m): ?>
+          <label class="inline">
+            <input type="checkbox" name="assigned_user_ids[]" value="<?=(int)$m['id']?>"
+                   <?=in_array((int)$m['id'], $assignedIds, true) ? 'checked' : ''?>>
+            <?=h(trim($m['first_name'] . ' ' . $m['last_name']))?>
+          </label>
+        <?php endforeach; ?>
+      </div>
+      <?php if ($canAddPerson): ?>
+        <label class="inline">
+          <input type="checkbox" id="assignNewPerson" name="assign_new_person" value="1" <?=$assignNewPerson ? 'checked' : ''?>>
+          New person…
+        </label>
+      <?php endif; ?>
+    </fieldset>
 
     <?php if ($canAddPerson): ?>
     <div id="newPersonFields" class="grid" style="display:none;">
@@ -96,14 +106,30 @@ function render_task_form_fields(array $values, array $opts = []): void {
 
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-      var select = document.getElementById('assignedToSelect');
+      // "New person…" checkbox reveals the name/email fields.
+      var newBox = document.getElementById('assignNewPerson');
       var newFields = document.getElementById('newPersonFields');
       function syncNewPerson() {
         if (!newFields) return;
-        newFields.style.display = (select && select.value === '__new__') ? '' : 'none';
+        newFields.style.display = (newBox && newBox.checked) ? '' : 'none';
       }
-      if (select) select.addEventListener('change', syncNewPerson);
+      if (newBox) newBox.addEventListener('change', syncNewPerson);
       syncNewPerson();
+
+      // "Select all" checks/unchecks every member; reflects manual changes.
+      var selectAll = document.getElementById('assignSelectAll');
+      var memberBoxes = Array.prototype.slice.call(
+        document.querySelectorAll('#assigneeChecklist input[name="assigned_user_ids[]"]'));
+      function syncSelectAll() {
+        if (selectAll) selectAll.checked = memberBoxes.length > 0 && memberBoxes.every(function (b) { return b.checked; });
+      }
+      if (selectAll) {
+        selectAll.addEventListener('change', function () {
+          memberBoxes.forEach(function (b) { b.checked = selectAll.checked; });
+        });
+        memberBoxes.forEach(function (b) { b.addEventListener('change', syncSelectAll); });
+        syncSelectAll();
+      }
 
       var rows = document.getElementById('reminderRows');
       var add = document.getElementById('addReminder');

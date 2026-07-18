@@ -35,8 +35,13 @@ $group = GroupManagement::getGroup((int)$task['group_id']);
 $task['owner_first_name'] = $group['owner_first_name'] ?? '';
 $task['owner_last_name'] = $group['owner_last_name'] ?? '';
 
-$hasAssignee = !empty($task['assigned_to_user_id']);
-$recipient = ['first_name' => $hasAssignee ? (string)$task['assignee_first_name'] : (string)($group['owner_first_name'] ?? '')];
+// Preview from the perspective of the first emailed assignee (falling back
+// to the group owner — the reminder's fallback recipient).
+$assignees = $task['assignees'] ?? [];
+$emailed = array_values(array_filter($assignees, fn($a) => !empty($a['email'])));
+$recipient = ['first_name' => $emailed
+    ? (string)$emailed[0]['first_name']
+    : (string)($group['owner_first_name'] ?? '')];
 $tokens = TaskNotificationManagement::taskTokens($task, $recipient);
 
 $isCustom = TaskNotificationManagement::hasCustomEmail($task);
@@ -49,10 +54,22 @@ if ($isCustom) {
     $body = $tpl['body'];
 }
 
-$assigneeName = trim(($task['assignee_first_name'] ?? '') . ' ' . ($task['assignee_last_name'] ?? ''));
-$to = $hasAssignee
-    ? $assigneeName . (!empty($task['assignee_email']) ? ' <' . $task['assignee_email'] . '>' : ' (no email — will go to the group owner & admins)')
-    : 'Group owner & admins (task is unassigned)';
+// To line: every assignee who will receive the email, with fallbacks spelled
+// out for the rest.
+if ($emailed) {
+    $to = implode(', ', array_map(
+        fn($a) => trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? '')) . ' <' . $a['email'] . '>',
+        $emailed
+    ));
+    $withoutEmail = count($assignees) - count($emailed);
+    if ($withoutEmail > 0) {
+        $to .= ' (+' . $withoutEmail . ' assignee' . ($withoutEmail === 1 ? '' : 's') . ' without email)';
+    }
+} elseif ($assignees) {
+    $to = 'Assignees have no email — will go to the group owner & admins';
+} else {
+    $to = 'Group owner & admins (task is unassigned)';
+}
 
 // Emails go out from the configured SMTP sender, not the task creator.
 $fromEmail = (defined('SMTP_FROM_EMAIL') && SMTP_FROM_EMAIL) ? SMTP_FROM_EMAIL

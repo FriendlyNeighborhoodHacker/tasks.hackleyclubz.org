@@ -172,7 +172,6 @@ CREATE TABLE tasks (
   is_done TINYINT(1) NOT NULL DEFAULT 0,
   completion_date DATE DEFAULT NULL,
   completed_by_user_id INT DEFAULT NULL,
-  assigned_to_user_id INT DEFAULT NULL COMMENT 'NULL = unassigned (notifications fall back to group owner/admins)',
   created_by_user_id INT DEFAULT NULL,
   custom_email_subject VARCHAR(255) DEFAULT NULL COMMENT 'Owner-edited scheduled reminder email; NULL = use group template',
   custom_email_body TEXT DEFAULT NULL,
@@ -180,15 +179,28 @@ CREATE TABLE tasks (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_tasks_group FOREIGN KEY (group_id) REFERENCES task_groups(id) ON DELETE CASCADE,
-  CONSTRAINT fk_tasks_assignee FOREIGN KEY (assigned_to_user_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_tasks_creator FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT fk_tasks_completer FOREIGN KEY (completed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE INDEX idx_tasks_group_due ON tasks(group_id, due_date);
-CREATE INDEX idx_tasks_assignee ON tasks(assigned_to_user_id);
 CREATE INDEX idx_tasks_category ON tasks(group_id, category);
 CREATE INDEX idx_tasks_done ON tasks(is_done);
+
+-- A task's assignees: any number of group members, all equal. Notifications
+-- go to every assignee with an email; a task with no assignees (or none with
+-- an email) falls back to the group owner/admins.
+CREATE TABLE task_assignees (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT NOT NULL,
+  user_id INT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_task_user (task_id, user_id),
+  CONSTRAINT fk_ta_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ta_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_ta_user ON task_assignees(user_id);
 
 -- Per-group customized email templates. Rows exist only for templates the
 -- group has customized; defaults live in code (lib/EmailTemplates.php).

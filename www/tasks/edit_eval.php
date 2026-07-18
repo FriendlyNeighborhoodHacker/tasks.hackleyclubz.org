@@ -27,7 +27,7 @@ try {
     $groupId = (int)$task['group_id'];
     $data = task_data_from_post($_POST);
 
-    if (($data['assigned_to_user_id'] ?? '') === '__new__') {
+    if (!empty($_POST['assign_new_person'])) {
         if (!GroupManagement::canManageGroup($ctx, $groupId)) {
             throw new RuntimeException('Only the group owner or a group admin can add a new person.');
         }
@@ -38,17 +38,19 @@ try {
             (string)($_POST['new_person_email'] ?? '')
         );
         GroupManagement::addMember($ctx, $groupId, $newUserId, 'member');
-        $data['assigned_to_user_id'] = $newUserId;
+        $data['assigned_user_ids'][] = $newUserId;
     }
+
+    // Diff BEFORE saving: only newly added assignees get the assignment email.
+    $before = array_map('intval', array_column($task['assignees'] ?? [], 'user_id'));
+    $added = array_values(array_diff(array_map('intval', $data['assigned_user_ids']), $before));
 
     TaskManagement::updateTask($ctx, $taskId, $data);
 
-    // Reassigned to someone new? Notify them with the group's assignment
-    // email template. Best-effort: a mail problem must not block the save.
-    $newAssigneeId = (int)($data['assigned_to_user_id'] ?? 0);
-    if ($newAssigneeId && $newAssigneeId !== (int)($task['assigned_to_user_id'] ?? 0)) {
+    // Best-effort: a mail problem must not block the save.
+    if ($added) {
         try {
-            TaskNotificationManagement::sendAssignmentEmail($taskId, $ctx);
+            TaskNotificationManagement::sendAssignmentEmail($taskId, $ctx, null, $added);
         } catch (Throwable $e) {
             // ignore
         }

@@ -89,8 +89,8 @@ header_html($task['title']);
     <?php if ($isDone && $completer): ?><div class="small" style="margin-top:4px;">by <?=h($completer)?></div><?php endif; ?>
   </div>
   <div class="task-prop">
-    <div class="task-prop-label">Owner</div>
-    <div><?=person_chip_html($task['assignee_first_name'] ?? '', $task['assignee_last_name'] ?? '')?></div>
+    <div class="task-prop-label"><?=count($task['assignees'] ?? []) > 1 ? 'Owners' : 'Owner'?></div>
+    <div><?=person_chips_html($task['assignees'] ?? [])?></div>
   </div>
   <div class="task-prop">
     <div class="task-prop-label">Reminders

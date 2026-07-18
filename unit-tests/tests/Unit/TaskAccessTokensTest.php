@@ -32,7 +32,7 @@ final class TaskAccessTokensTest extends TestCase
         GroupManagement::addMember($this->ownerCtx, $this->groupId, $this->assigneeId, 'member');
         $this->taskId = TaskManagement::createTask($this->ownerCtx, $this->groupId, [
             'title' => 'Tokened task',
-            'assigned_to_user_id' => $this->assigneeId,
+            'assigned_user_ids' => [$this->assigneeId],
         ]);
     }
 
