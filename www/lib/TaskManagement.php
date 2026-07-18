@@ -414,6 +414,39 @@ class TaskManagement {
         }
     }
 
+    // Replace a task's assignees with exactly $userIds. Each id must belong to
+    // the task's group. Returns the newly-added user ids (so the caller can
+    // send them assignment emails). Permission is the same as any task edit.
+    public static function setAssignees(?UserContext $ctx, int $taskId, array $userIds): array {
+        $task = self::getTask($taskId);
+        if (!$task) {
+            throw new InvalidArgumentException('Task not found.');
+        }
+        self::assertCanEditTask($ctx, $task);
+
+        $groupId = (int)$task['group_id'];
+        $ids = [];
+        foreach ($userIds as $id) {
+            if ($id === '' || $id === null) continue;
+            $id = (int)$id;
+            if ($id <= 0) continue;
+            $ids[$id] = true;
+        }
+        $ids = array_keys($ids);
+        foreach ($ids as $id) {
+            if (!GroupManagement::isMember($id, $groupId)) {
+                throw new InvalidArgumentException('Each assignee must be a member of the group.');
+            }
+        }
+
+        $before = array_map('intval', array_column($task['assignees'] ?? [], 'user_id'));
+        $added = array_values(array_diff($ids, $before));
+
+        self::replaceAssignees($taskId, $ids);
+        self::log('task.assignees_set', $taskId, ['user_ids' => $ids]);
+        return $added;
+    }
+
     // ===== Reminders =====
 
     public static function setReminders(?UserContext $ctx, int $taskId, array $daysList): void {

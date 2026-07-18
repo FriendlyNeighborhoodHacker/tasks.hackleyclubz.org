@@ -350,6 +350,31 @@ final class TaskManagementTest extends TestCase
         $this->assertSame([$this->ownerCtx->id, $this->memberCtx->id], $ids);
     }
 
+    public function testSetAssigneesReplacesSetAndReportsAdded(): void
+    {
+        $id = TaskManagement::createTask($this->memberCtx, $this->groupId, [
+            'title' => 'Reassign me',
+            'assigned_user_ids' => [$this->otherMemberCtx->id],
+        ]);
+
+        // otherMember stays, owner is newly added, member is unchanged (not on it).
+        $added = TaskManagement::setAssignees($this->ownerCtx, $id, [
+            $this->otherMemberCtx->id, $this->ownerCtx->id,
+        ]);
+        $this->assertSame([$this->ownerCtx->id], $added, 'only the newly-added id is returned');
+
+        $ids = array_column(TaskManagement::getTask($id)['assignees'], 'user_id');
+        sort($ids);
+        $this->assertSame([$this->ownerCtx->id, $this->otherMemberCtx->id], $ids);
+    }
+
+    public function testSetAssigneesRejectsNonMember(): void
+    {
+        $id = $this->createTaskAssignedToOther();
+        $this->expectException(InvalidArgumentException::class);
+        TaskManagement::setAssignees($this->ownerCtx, $id, [$this->outsiderCtx->id]);
+    }
+
     public function testAnyAssigneeCanEdit(): void
     {
         $id = TaskManagement::createTask($this->ownerCtx, $this->groupId, [

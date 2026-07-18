@@ -89,8 +89,43 @@ header_html($task['title']);
     <?php if ($isDone && $completer): ?><div class="small" style="margin-top:4px;">by <?=h($completer)?></div><?php endif; ?>
   </div>
   <div class="task-prop">
-    <div class="task-prop-label"><?=count($task['assignees'] ?? []) > 1 ? 'Owners' : 'Owner'?></div>
-    <div><?=person_chips_html($task['assignees'] ?? [])?></div>
+    <div class="task-prop-label"><?=count($task['assignees'] ?? []) > 1 ? 'Owners' : 'Owner'?>
+      <?php if ($canManage): ?><button type="button" class="prop-edit-link" id="assigneesEditBtn">Edit</button><?php endif; ?>
+    </div>
+    <div class="task-prop-value" id="assigneesText"><?=person_chips_html($task['assignees'] ?? [])?></div>
+    <?php if ($canManage): ?>
+    <?php
+      $assignedIds = array_map('intval', array_column($task['assignees'] ?? [], 'user_id'));
+      $members = GroupManagement::listMembers($groupId);
+    ?>
+    <form method="post" action="/tasks/assignees_eval.php" class="assignees-form hidden" id="assigneesForm">
+      <input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
+      <input type="hidden" name="task_id" value="<?=$taskId?>">
+      <div class="assignee-checklist">
+        <?php foreach ($members as $m): ?>
+          <label class="inline">
+            <input type="checkbox" name="assigned_user_ids[]" value="<?=(int)$m['id']?>"
+                   <?=in_array((int)$m['id'], $assignedIds, true) ? 'checked' : ''?>>
+            <?=h(trim($m['first_name'] . ' ' . $m['last_name']))?>
+          </label>
+        <?php endforeach; ?>
+      </div>
+      <div class="reminder-actions">
+        <button class="button primary" type="submit">Save</button>
+      </div>
+    </form>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var btn = document.getElementById('assigneesEditBtn');
+      var form = document.getElementById('assigneesForm');
+      btn.addEventListener('click', function () {
+        var formHidden = form.classList.toggle('hidden');
+        document.getElementById('assigneesText').classList.toggle('hidden', !formHidden);
+        btn.textContent = formHidden ? 'Edit' : 'Cancel';
+      });
+    });
+    </script>
+    <?php endif; ?>
   </div>
   <div class="task-prop">
     <div class="task-prop-label">Reminders
