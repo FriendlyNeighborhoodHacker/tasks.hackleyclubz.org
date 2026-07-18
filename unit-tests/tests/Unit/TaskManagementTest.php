@@ -48,7 +48,6 @@ final class TaskManagementTest extends TestCase
         $id = TaskManagement::createTask($this->memberCtx, $this->groupId, [
             'title' => 'Bring snacks',
             'due_date' => '2026-08-01',
-            'category' => 'Events',
             'assigned_user_ids' => [$this->otherMemberCtx->id],
         ]);
 
@@ -218,20 +217,6 @@ final class TaskManagementTest extends TestCase
         $this->assertTrue(TaskManagement::deleteComment($this->otherMemberCtx, $commentId));
     }
 
-    // --- categories ---
-
-    public function testListCategoriesIsDistinctPerGroup(): void
-    {
-        TaskManagement::createTask($this->memberCtx, $this->groupId, ['title' => 'A', 'category' => 'Events']);
-        TaskManagement::createTask($this->memberCtx, $this->groupId, ['title' => 'B', 'category' => 'Events']);
-        TaskManagement::createTask($this->memberCtx, $this->groupId, ['title' => 'C', 'category' => 'Admin']);
-
-        $otherGroup = GroupManagement::createGroup($this->memberCtx, ['name' => 'Other']);
-        TaskManagement::createTask($this->memberCtx, $otherGroup, ['title' => 'D', 'category' => 'Elsewhere']);
-
-        $this->assertSame(['Admin', 'Events'], TaskManagement::listCategories($this->groupId));
-    }
-
     // --- listTasks filters ---
 
     public function testListTasksMineFilterAndDoneFilter(): void
@@ -294,21 +279,6 @@ final class TaskManagementTest extends TestCase
             ['id' => 1, 'title' => 'Monday task', 'due_date' => '2026-07-13', 'is_done' => 0],
         ], '2026-07-15');
         $this->assertSame('Overdue', $groups[0]['label']);
-    }
-
-    public function testGroupTasksByCategory(): void
-    {
-        $tasks = [
-            ['id' => 1, 'title' => 'B', 'category' => 'Zeta', 'is_done' => 0],
-            ['id' => 2, 'title' => 'A', 'category' => 'alpha', 'is_done' => 0],
-            ['id' => 3, 'title' => 'C', 'category' => null, 'is_done' => 0],
-            ['id' => 4, 'title' => 'D', 'category' => 'Zeta', 'is_done' => 1],
-        ];
-
-        $groups = TaskManagement::groupTasksByCategory($tasks);
-        $labels = array_column($groups, 'label');
-
-        $this->assertSame(['alpha', 'Zeta', 'Uncategorized', 'Completed'], $labels);
     }
 
     public function testGroupTasksByOwner(): void

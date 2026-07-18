@@ -13,7 +13,6 @@ function task_data_from_post(array $post): array {
     return [
         'title' => $post['title'] ?? '',
         'description' => $post['description'] ?? '',
-        'category' => $post['category'] ?? '',
         'due_date' => $post['due_date'] ?? '',
         'assigned_user_ids' => array_map('intval', (array)($post['assigned_user_ids'] ?? [])),
         'reminders' => $reminders,
@@ -21,14 +20,13 @@ function task_data_from_post(array $post): array {
 }
 
 /**
- * $values: title, description, category, due_date, assigned_user_ids (array),
+ * $values: title, description, due_date, assigned_user_ids (array),
  *          assign_new_person, reminder_days (array of ints)
- * $opts:   members (group member rows), categories (strings),
+ * $opts:   members (group member rows),
  *          can_add_person (bool — show the "New person…" assignee option)
  */
 function render_task_form_fields(array $values, array $opts = []): void {
     $members = $opts['members'] ?? [];
-    $categories = $opts['categories'] ?? [];
     $canAddPerson = !empty($opts['can_add_person']);
     $assignedIds = array_map('intval', (array)($values['assigned_user_ids'] ?? []));
     $assignNewPerson = !empty($values['assign_new_person']);
@@ -37,14 +35,6 @@ function render_task_form_fields(array $values, array $opts = []): void {
     <div class="grid">
       <label>Title
         <input type="text" name="title" value="<?=h($values['title'] ?? '')?>" required>
-      </label>
-      <label>Category
-        <input type="text" name="category" list="categorySuggestions" value="<?=h($values['category'] ?? '')?>" placeholder="e.g. Events">
-        <datalist id="categorySuggestions">
-          <?php foreach ($categories as $c): ?>
-            <option value="<?=h($c)?>"></option>
-          <?php endforeach; ?>
-        </datalist>
       </label>
       <label>Due date
         <input type="date" name="due_date" value="<?=h($values['due_date'] ?? '')?>">

@@ -92,7 +92,6 @@ class TaskManagement {
         }
 
         $description = trim((string)($data['description'] ?? ''));
-        $category = trim((string)($data['category'] ?? ''));
 
         $dueDate = trim((string)($data['due_date'] ?? ''));
         if ($dueDate !== '') {
@@ -120,7 +119,6 @@ class TaskManagement {
         return [
             'title' => $title,
             'description' => $description !== '' ? $description : null,
-            'category' => $category !== '' ? $category : null,
             'due_date' => $dueDate !== '' ? $dueDate : null,
             'assigned_user_ids' => $assignedIds,
         ];
@@ -128,19 +126,19 @@ class TaskManagement {
 
     // ===== Task CRUD =====
 
-    // $data: title, description, category, due_date, assigned_user_ids
-    // (array — a task may have any number of assignees), reminders (optional
-    // array of days-in-advance ints; when omitted and the task has a due
-    // date, a default reminder is added).
+    // $data: title, description, due_date, assigned_user_ids (array — a task
+    // may have any number of assignees), reminders (optional array of
+    // days-in-advance ints; when omitted and the task has a due date, a
+    // default reminder is added).
     public static function createTask(?UserContext $ctx, int $groupId, array $data): int {
         $ctx = self::assertMemberOfGroup($ctx, $groupId);
         $f = self::normalizeFields($groupId, $data);
 
         $st = self::pdo()->prepare(
-            'INSERT INTO tasks (group_id, title, description, category, due_date, created_by_user_id)
-             VALUES (?,?,?,?,?,?)'
+            'INSERT INTO tasks (group_id, title, description, due_date, created_by_user_id)
+             VALUES (?,?,?,?,?)'
         );
-        $st->execute([$groupId, $f['title'], $f['description'], $f['category'], $f['due_date'], $ctx->id]);
+        $st->execute([$groupId, $f['title'], $f['description'], $f['due_date'], $ctx->id]);
         $taskId = (int)self::pdo()->lastInsertId();
 
         self::replaceAssignees($taskId, $f['assigned_user_ids']);
@@ -165,9 +163,9 @@ class TaskManagement {
         $f = self::normalizeFields((int)$task['group_id'], $data);
 
         $st = self::pdo()->prepare(
-            'UPDATE tasks SET title=?, description=?, category=?, due_date=? WHERE id=?'
+            'UPDATE tasks SET title=?, description=?, due_date=? WHERE id=?'
         );
-        $ok = $st->execute([$f['title'], $f['description'], $f['category'], $f['due_date'], $taskId]);
+        $ok = $st->execute([$f['title'], $f['description'], $f['due_date'], $taskId]);
 
         self::replaceAssignees($taskId, $f['assigned_user_ids']);
 
@@ -225,23 +223,19 @@ class TaskManagement {
     }
 
     // $filters: search, assigned_to_user_id (matches tasks where that user is
-    // ANY of the assignees), category, include_done (bool)
+    // ANY of the assignees), include_done (bool)
     public static function listTasks(int $groupId, array $filters = []): array {
         $sql = 'SELECT t.* FROM tasks t WHERE t.group_id = ?';
         $params = [$groupId];
 
         if (!empty($filters['search'])) {
-            $sql .= ' AND (t.title LIKE ? OR t.description LIKE ? OR t.category LIKE ?)';
+            $sql .= ' AND (t.title LIKE ? OR t.description LIKE ?)';
             $term = '%' . $filters['search'] . '%';
-            array_push($params, $term, $term, $term);
+            array_push($params, $term, $term);
         }
         if (!empty($filters['assigned_to_user_id'])) {
             $sql .= ' AND EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)';
             $params[] = (int)$filters['assigned_to_user_id'];
-        }
-        if (!empty($filters['category'])) {
-            $sql .= ' AND t.category = ?';
-            $params[] = $filters['category'];
         }
         if (empty($filters['include_done'])) {
             $sql .= ' AND t.is_done = 0';
@@ -252,17 +246,6 @@ class TaskManagement {
         $st = self::pdo()->prepare($sql);
         $st->execute($params);
         return self::attachAssignees($st->fetchAll());
-    }
-
-    // Distinct categories previously used in the group (for the form datalist).
-    public static function listCategories(int $groupId): array {
-        $st = self::pdo()->prepare(
-            "SELECT DISTINCT category FROM tasks
-             WHERE group_id = ? AND category IS NOT NULL AND category <> ''
-             ORDER BY category"
-        );
-        $st->execute([$groupId]);
-        return array_column($st->fetchAll(), 'category');
     }
 
     // ===== Completion =====
@@ -540,37 +523,6 @@ class TaskManagement {
         return $groups;
     }
 
-    // Buckets tasks by category, alphabetical with "Uncategorized" last (and
-    // "Completed" after that when done tasks are included).
-    public static function groupTasksByCategory(array $tasks): array {
-        $byCategory = [];
-        $uncategorized = [];
-        $done = [];
-
-        foreach ($tasks as $t) {
-            if (!empty($t['is_done'])) {
-                $done[] = $t;
-            } elseif (!empty($t['category'])) {
-                $byCategory[(string)$t['category']][] = $t;
-            } else {
-                $uncategorized[] = $t;
-            }
-        }
-
-        uksort($byCategory, 'strnatcasecmp');
-
-        $groups = [];
-        foreach ($byCategory as $category => $rows) {
-            $groups[] = ['label' => $category, 'tasks' => $rows];
-        }
-        if ($uncategorized) {
-            $groups[] = ['label' => 'Uncategorized', 'tasks' => $uncategorized];
-        }
-        if ($done) {
-            $groups[] = ['label' => 'Completed', 'tasks' => $done];
-        }
-        return $groups;
-    }
 
     // Buckets tasks by assignee, alphabetical with "Unassigned" last (and
     // "Completed" after that when done tasks are included). Tasks carry an

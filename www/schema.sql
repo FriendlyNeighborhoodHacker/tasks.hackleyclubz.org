@@ -167,7 +167,6 @@ CREATE TABLE tasks (
   group_id INT NOT NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT DEFAULT NULL COMMENT 'Instructions for completing the task',
-  category VARCHAR(100) DEFAULT NULL COMMENT 'Free text; UI suggests the group''s previous categories',
   due_date DATE DEFAULT NULL,
   is_done TINYINT(1) NOT NULL DEFAULT 0,
   completion_date DATE DEFAULT NULL,
@@ -184,7 +183,6 @@ CREATE TABLE tasks (
 ) ENGINE=InnoDB;
 
 CREATE INDEX idx_tasks_group_due ON tasks(group_id, due_date);
-CREATE INDEX idx_tasks_category ON tasks(group_id, category);
 CREATE INDEX idx_tasks_done ON tasks(is_done);
 
 -- A task's assignees: any number of group members, all equal. Notifications

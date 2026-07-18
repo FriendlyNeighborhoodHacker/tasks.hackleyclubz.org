@@ -69,7 +69,6 @@ ApplicationUI::minimalHeaderHtml($task['title']);
   <table class="list">
     <tr><th>Group</th><td><?=h($task['group_name'])?></td></tr>
     <tr><th>Assigned to</th><td><?=h($assignee ?: '—')?></td></tr>
-    <?php if (!empty($task['category'])): ?><tr><th>Category</th><td><?=h($task['category'])?></td></tr><?php endif; ?>
   </table>
 
   <?php if (!empty($task['description'])): ?>

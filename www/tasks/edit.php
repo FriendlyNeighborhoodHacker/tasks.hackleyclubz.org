@@ -31,7 +31,6 @@ if ($form) {
     $values = [
         'title' => $task['title'],
         'description' => $task['description'] ?? '',
-        'category' => $task['category'] ?? '',
         'due_date' => $task['due_date'] ?? '',
         'assigned_user_ids' => array_column($task['assignees'] ?? [], 'user_id'),
         'reminder_days' => array_column(TaskManagement::listReminders($taskId), 'days_in_advance'),
@@ -40,7 +39,6 @@ if ($form) {
 
 $opts = [
     'members' => GroupManagement::listMembers($groupId),
-    'categories' => TaskManagement::listCategories($groupId),
     'can_add_person' => GroupManagement::canManageGroup($ctx, $groupId),
 ];
 

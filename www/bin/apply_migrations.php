@@ -23,7 +23,8 @@ $skipBackup = array_key_exists('skip-backup', $options);
 
 $migrationsDir = realpath(__DIR__ . '/../db_migrations');
 
-// Each migration and the schema object whose existence proves it was applied.
+// Each migration and the schema state that proves it was applied: a
+// table/column the migration creates, or 'no-column' for one it removes.
 // Ordered; a new migration file must be added here with its sentinel.
 $migrations = [
     '2026-07-15_initial_schema.sql'         => ['table', 'tasks'],
@@ -32,6 +33,7 @@ $migrations = [
     '2026-07-16_group_reply_to_email.sql'   => ['column', 'task_groups', 'reply_to_email'],
     '2026-07-16_group_smtp_overrides.sql'   => ['table', 'group_smtp_overrides'],
     '2026-07-18_task_multi_assignees.sql'   => ['table', 'task_assignees'],
+    '2026-07-18_drop_task_categories.sql'   => ['no-column', 'tasks', 'category'],
 ];
 
 // Any .sql file on disk that this list doesn't know about is a hard error —
@@ -45,20 +47,22 @@ if ($unknown) {
 
 $db = pdo();
 
-function schema_object_exists(PDO $db, array $sentinel): bool {
+function migration_applied(PDO $db, array $sentinel): bool {
     if ($sentinel[0] === 'table') {
         $st = $db->prepare('SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
         $st->execute([$sentinel[1]]);
-    } else { // column
-        $st = $db->prepare('SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
-        $st->execute([$sentinel[1], $sentinel[2]]);
+        return (bool)$st->fetchColumn();
     }
-    return (bool)$st->fetchColumn();
+    // column / no-column
+    $st = $db->prepare('SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
+    $st->execute([$sentinel[1], $sentinel[2]]);
+    $columnExists = (bool)$st->fetchColumn();
+    return $sentinel[0] === 'no-column' ? !$columnExists : $columnExists;
 }
 
 $pending = [];
 foreach ($migrations as $file => $sentinel) {
-    if (!schema_object_exists($db, $sentinel)) {
+    if (!migration_applied($db, $sentinel)) {
         $pending[] = $file;
     }
 }

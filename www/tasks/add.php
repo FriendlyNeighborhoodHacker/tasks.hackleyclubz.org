@@ -33,7 +33,6 @@ if (!empty($form) && !isset($form['reminder_days'])) {
 
 $opts = [
     'members' => GroupManagement::listMembers($groupId),
-    'categories' => TaskManagement::listCategories($groupId),
     'can_add_person' => GroupManagement::canManageGroup($ctx, $groupId),
 ];
 
